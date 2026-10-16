@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+dist-packages/
+*.tgz
+bakeoff/node_modules/
+bakeoff/.venv/
+.tools/

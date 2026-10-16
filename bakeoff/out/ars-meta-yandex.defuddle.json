@@ -1,0 +1,262 @@
+{
+  "title": "Meta and Yandex are de-anonymizing Android users’ web browsing identifiers",
+  "description": "Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories.",
+  "domain": "arstechnica.com",
+  "favicon": "https://cdn.arstechnica.net/wp-content/uploads/2016/10/cropped-ars-logo-512_480-60x60.png",
+  "image": "https://cdn.arstechnica.net/wp-content/uploads/2025/06/android-tracking-binoculars-1152x648.jpg",
+  "language": "en",
+  "published": "2025-06-03T12:00:48+00:00",
+  "author": "Dan Goodin",
+  "site": "Ars Technica",
+  "schemaOrgData": [
+    {
+      "@type": "WebSite",
+      "@id": "https://arstechnica.com/#/schema/WebSite",
+      "url": "https://arstechnica.com/",
+      "name": "Ars Technica",
+      "description": "Serving the Technologist since 1998. News, reviews, and analysis.",
+      "inLanguage": "en-US",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://arstechnica.com/search/{search_term_string}/"
+        },
+        "query-input": "required name=search_term_string"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "@id": "https://arstechnica.com/#/schema/Organization",
+        "name": "Ars Technica",
+        "url": "https://arstechnica.com/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://cdn.arstechnica.net/wp-content/uploads/2016/10/cropped-ars-logo-512_480.png",
+          "contentUrl": "https://cdn.arstechnica.net/wp-content/uploads/2016/10/cropped-ars-logo-512_480.png",
+          "width": 512,
+          "height": 512,
+          "contentSize": "34417"
+        }
+      }
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://arstechnica.com/security/2025/06/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers/",
+      "url": "https://arstechnica.com/security/2025/06/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers/",
+      "name": "Meta and Yandex are de-anonymizing Android users’ web browsing identifiers - Ars Technica",
+      "description": "Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories.",
+      "inLanguage": "en-US",
+      "isPartOf": {
+        "@id": "https://arstechnica.com/#/schema/WebSite"
+      },
+      "breadcrumb": {
+        "@type": "BreadcrumbList",
+        "@id": "https://arstechnica.com/#/schema/BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "item": "https://arstechnica.com/",
+            "name": "Ars Technica"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "item": "https://arstechnica.com/security/",
+            "name": "Category: Security"
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "Meta and Yandex are de-anonymizing Android users’ web browsing identifiers"
+          }
+        ]
+      },
+      "potentialAction": {
+        "@type": "ReadAction",
+        "target": "https://arstechnica.com/security/2025/06/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers/"
+      },
+      "datePublished": "2025-06-03T12:00:48+00:00",
+      "dateModified": "2025-06-03T18:10:45+00:00",
+      "author": {
+        "@type": "Person",
+        "@id": "https://arstechnica.com/#/schema/Person/837fa919071f5a28ded12e6ce1f54d1b",
+        "name": "Dan Goodin",
+        "description": "Dan Goodin is Senior Security Editor at Ars Technica, where he oversees coverage of malware, computer espionage, botnets, hardware hacking, encryption, and passwords. A journalist with more than 25 years experience, he has been chronicling the..."
+      }
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "NewsArticle",
+      "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": "https://arstechnica.com/security/2025/06/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers/"
+      },
+      "headline": "Meta and Yandex are de-anonymizing Android users’ web browsing identifiers",
+      "image": {
+        "@type": "ImageObject",
+        "url": "https://cdn.arstechnica.net/wp-content/uploads/2025/06/android-tracking-binoculars-1152x648.jpg",
+        "width": 1152,
+        "height": 648
+      },
+      "datePublished": "2025-06-03T12:00:48+00:00",
+      "dateModified": "2025-06-03T18:10:45+00:00",
+      "author": {
+        "@type": "Person",
+        "name": "Dan Goodin",
+        "url": "https://arstechnica.com/author/dan-goodin/"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "Ars Technica",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://cdn.arstechnica.net/wp-content/uploads/2024/10/ars-logo-186x60.png",
+          "width": 186,
+          "height": 60
+        }
+      },
+      "description": "Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories."
+    }
+  ],
+  "wordCount": 2368,
+  "parseTime": 160,
+  "metaTags": [
+    {
+      "name": "viewport",
+      "property": null,
+      "content": "width=device-width, initial-scale=1"
+    },
+    {
+      "name": "robots",
+      "property": null,
+      "content": "max-snippet:-1,max-image-preview:large,max-video-preview:-1"
+    },
+    {
+      "name": "description",
+      "property": null,
+      "content": "Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories."
+    },
+    {
+      "name": null,
+      "property": "og:type",
+      "content": "article"
+    },
+    {
+      "name": null,
+      "property": "og:locale",
+      "content": "en_US"
+    },
+    {
+      "name": null,
+      "property": "og:site_name",
+      "content": "Ars Technica"
+    },
+    {
+      "name": null,
+      "property": "og:title",
+      "content": "Meta and Yandex are de-anonymizing Android users’ web browsing identifiers"
+    },
+    {
+      "name": null,
+      "property": "og:description",
+      "content": "Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories."
+    },
+    {
+      "name": null,
+      "property": "og:url",
+      "content": "https://arstechnica.com/security/2025/06/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers/"
+    },
+    {
+      "name": null,
+      "property": "og:image",
+      "content": "https://cdn.arstechnica.net/wp-content/uploads/2025/06/android-tracking-binoculars-1152x648.jpg"
+    },
+    {
+      "name": null,
+      "property": "og:image:width",
+      "content": "1152"
+    },
+    {
+      "name": null,
+      "property": "og:image:height",
+      "content": "648"
+    },
+    {
+      "name": null,
+      "property": "article:published_time",
+      "content": "2025-06-03T12:00:48+00:00"
+    },
+    {
+      "name": null,
+      "property": "article:modified_time",
+      "content": "2025-06-03T18:10:45+00:00"
+    },
+    {
+      "name": "twitter:card",
+      "property": null,
+      "content": "summary_large_image"
+    },
+    {
+      "name": "twitter:title",
+      "property": null,
+      "content": "Meta and Yandex are de-anonymizing Android users’ web browsing identifiers"
+    },
+    {
+      "name": "twitter:description",
+      "property": null,
+      "content": "Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories."
+    },
+    {
+      "name": "twitter:image",
+      "property": null,
+      "content": "https://cdn.arstechnica.net/wp-content/uploads/2025/06/android-tracking-binoculars-1152x648.jpg"
+    },
+    {
+      "name": null,
+      "property": "article:published_time",
+      "content": "2025-06-03T12:00:48+00:00"
+    },
+    {
+      "name": null,
+      "property": "article:modified_time",
+      "content": "2025-06-03T18:10:45+00:00"
+    },
+    {
+      "name": "twitter:site",
+      "property": null,
+      "content": "@arstechnica"
+    },
+    {
+      "name": "twitter:domain",
+      "property": null,
+      "content": "arstechnica.com"
+    },
+    {
+      "name": null,
+      "property": "facebook-domain-verification",
+      "content": "qptjyerza2q11uv3fe6aay6hbsncr8"
+    },
+    {
+      "name": "twitter:partner",
+      "property": null,
+      "content": "tfwp"
+    },
+    {
+      "name": "parsely-page",
+      "property": null,
+      "content": "{\"title\":\"Meta and Yandex are de-anonymizing Android users\\u2019 web browsing identifiers\",\"link\":\"https:\\/\\/arstechnica.com\\/security\\/2025\\/06\\/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers\\/\",\"type\":\"post\",\"author\":\"Dan Goodin\",\"post_id\":2098088,\"pub_date\":\"2025-06-03T08:00:48-04:00\",\"section\":\"Security\",\"tags\":[\"browsing-histories\",\"meta-pixel\",\"metrica\",\"privacy\",\"yandex\"],\"image_url\":\"https:\\/\\/cdn.arstechnica.net\\/wp-content\\/uploads\\/2025\\/06\\/android-tracking-binoculars-500x500.jpg\"}"
+    },
+    {
+      "name": "parsely-metadata",
+      "property": null,
+      "content": "{\"type\":\"post\",\"title\":\"Meta and Yandex are de-anonymizing Android users\\u2019 web browsing identifiers\",\"post_id\":2098088,\"lower_deck\":\"Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories.\",\"image_url\":\"https:\\/\\/cdn.arstechnica.net\\/wp-content\\/uploads\\/2025\\/06\\/android-tracking-binoculars-500x500.jpg\",\"listing_image_url\":\"https:\\/\\/cdn.arstechnica.net\\/wp-content\\/uploads\\/2025\\/06\\/android-tracking-binoculars-768x432.jpg\"}"
+    },
+    {
+      "name": "msapplication-TileImage",
+      "property": null,
+      "content": "https://cdn.arstechnica.net/wp-content/uploads/2016/10/cropped-ars-logo-512_480-300x300.png"
+    }
+  ],
+  "ms": 171
+}

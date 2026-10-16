@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+// wclip — clip web articles to markdown notes with YAML frontmatter.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parseArgs } from 'node:util';
+import { DEFAULTS, DEFAULT_CONFIG_TEMPLATE, configPath, expandHome, loadConfig, writePrivate, type Config } from './config.js';
+import type { Article } from './extract.js';
+import { HONEST_UA, VERSION } from './fetch.js';
+import { llmTagsSummary } from './llm.js';
+import { buildNote, type Fields } from './note.js';
+import { getArticle } from './pipeline.js';
+import { makeImageFetcher, writeExports } from './render.js';
+import { WebclipError, ask, closeInput, die, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
+
+const HELP = `usage: wclip [options] URL
+
+Clip web articles to markdown notes with YAML frontmatter.
+
+  wclip URL [options]        clip an article
+  wclip -i [URL]             interactive: confirm/edit fields
+  wclip --init-config        write a default config file
+
+options:
+  -i, --interactive        confirm/edit fields before saving
+  -t, --title TITLE        override title
+  -a, --author AUTHORS     override author (comma-separated); empty string clears
+  -p, --published DATE     override published date (YYYY-MM-DD)
+  -d, --description TEXT   override description (skips LLM summary)
+  -g, --tags TAGS          override tags (comma-separated; skips LLM tags)
+  -r, --read               mark as read
+  -f, --force              overwrite existing note
+      --stdout             print note instead of writing it
+      --browser            fetch with the headless browser right away
+      --no-browser         never use the headless browser
+      --html FILE          extract from a saved HTML file (URL is still the source)
+      --init-config        write default config and exit
+  -V, --version            print version
+  -h, --help               show this help
+
+Config: ~/.config/wclip/config.yaml (override with $WCLIP_CONFIG)
+`;
+
+type Args = {
+  url?: string; interactive?: boolean; title?: string; author?: string; published?: string; description?: string;
+  tags?: string; read?: boolean; force?: boolean; stdout?: boolean; browser?: boolean; 'no-browser'?: boolean;
+  html?: string;
+};
+
+async function fetchArticle(url: string, cfg: Config, args: Args): Promise<Article> {
+  info(args.html !== undefined ? `Reading ${args.html} (source: ${url}) ...` : `Fetching ${url} ...`);
+  return getArticle(url, cfg, {
+    browser: args.browser ? 'always' : args['no-browser'] ? 'never' : undefined,
+    html: args.html !== undefined ? readFileSync(args.html, 'utf8') : undefined,
+  });
+}
+
+// Only calls OpenRouter when its values would be used (property present and not overridden),
+// to avoid needless disclosure of article content and API cost.
+async function gatherFields(url: string, art: Article, cfg: Config, args: Args): Promise<Fields> {
+  const title = args.title || art.title || url;
+  const props = cfg.properties?.length ? cfg.properties : DEFAULTS.properties;
+  const needTags = props.includes('tags') && args.tags === undefined;
+  const needDesc = props.includes('description') && args.description === undefined;
+  const llm = needTags || needDesc ? await llmTagsSummary(title, art.content, cfg) : null;
+  return {
+    title,
+    source: url,
+    author: args.author !== undefined ? args.author : art.author,
+    published: parseDate(args.published || art.published),
+    description: args.description ?? llm?.summary ?? '',
+    tags: args.tags !== undefined ? args.tags.split(',').map(t => t.trim()).filter(Boolean) : llm?.tags ?? [],
+    read: Boolean(args.read),
+    site: art.site,
+    license: art.license,
+  };
+}
+
+async function writeNote(dest: string, note: string, cfg: Config): Promise<void> {
+  mkdirSync(join(dest, '..'), { recursive: true });
+  writeFileSync(dest, note, 'utf8');
+  info(`Clipped: ${dest}`);
+  await writeExports(dest, note, cfg, cfg.include_images ? makeImageFetcher(HONEST_UA, cfg.timeout) : null);
+}
+
+async function interactiveClip(url: string, args: Args, cfg: Config): Promise<void> {
+  if (!url) url = await ask('URL');
+  if (!url) die('no URL given');
+  url = normalizeUrl(url);
+  const art = await fetchArticle(url, cfg, args);
+  info('Extracted:');
+  info(`  title:     ${art.title || url}`);
+  info(`  author:    ${art.author || '(unknown)'}`);
+  info(`  published: ${art.published || '(unknown)'}`);
+  info(`  words:     ${art.words}`);
+  info('');
+  const f = await gatherFields(url, art, cfg, args);
+  process.stderr.write('\n');
+  f.title = await ask('Title', f.title);
+  f.author = await ask('Author(s), comma-separated', f.author);
+  f.description = await ask('Description', f.description);
+  f.published = parseDate(await ask('Published (YYYY-MM-DD)', f.published));
+  f.tags = (await ask('Tags (comma-separated)', f.tags.join(', '))).split(',').map(t => t.trim()).filter(Boolean);
+  f.read = (await ask('Mark as read? (y/N)', 'n')).toLowerCase().startsWith('y');
+  const note = buildNote(f, art.content, cfg);
+  const dir = expandHome(cfg.articles_dir);
+  let dest = join(dir, `${sanitizeFilename(f.title)}.md`);
+  info(`\nWill write: ${dest}`);
+  if (existsSync(dest)) {
+    const choice = (await ask('File exists. (o)verwrite / (r)ename / (a)bort', 'a')).toLowerCase();
+    if (choice.startsWith('r')) {
+      for (let i = 2; existsSync(dest); i++) dest = join(dir, `${sanitizeFilename(f.title)}-${i}.md`);
+      info(`Renamed to: ${dest}`);
+    } else if (!choice.startsWith('o')) die('aborted');
+  }
+  if ((await ask('Save? (Y/n)', 'y')).toLowerCase().startsWith('n')) die('aborted');
+  await writeNote(dest, note, cfg);
+}
+
+async function batchClip(url: string, args: Args, cfg: Config): Promise<void> {
+  const art = await fetchArticle(url, cfg, args);
+  const f = await gatherFields(url, art, cfg, args);
+  const note = buildNote(f, art.content, cfg);
+  if (args.stdout) {
+    process.stdout.write(note + '\n');
+    return;
+  }
+  const dest = join(expandHome(cfg.articles_dir), `${sanitizeFilename(f.title)}.md`);
+  if (existsSync(dest) && !args.force) die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
+  await writeNote(dest, note, cfg);
+  info(`title: ${f.title} | ${art.words} words | ${readingTime(art.words, cfg.reading_wpm)}`);
+  if (!f.tags.length && args.tags === undefined) info('note: tags/description empty (LLM unavailable or failed)');
+}
+
+async function main(): Promise<number> {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      allowPositionals: true,
+      options: {
+        interactive: { type: 'boolean', short: 'i' }, title: { type: 'string', short: 't' },
+        author: { type: 'string', short: 'a' }, published: { type: 'string', short: 'p' },
+        description: { type: 'string', short: 'd' }, tags: { type: 'string', short: 'g' },
+        read: { type: 'boolean', short: 'r' }, force: { type: 'boolean', short: 'f' },
+        stdout: { type: 'boolean' }, browser: { type: 'boolean' }, 'no-browser': { type: 'boolean' },
+        html: { type: 'string' }, 'init-config': { type: 'boolean' },
+        version: { type: 'boolean', short: 'V' }, help: { type: 'boolean', short: 'h' },
+      },
+    });
+  } catch (e) {
+    process.stderr.write(`error: ${(e as Error).message}\n\n${HELP}`);
+    return 2;
+  }
+  const { values, positionals } = parsed;
+  if (values.help) { process.stdout.write(HELP); return 0; }
+  if (values.version) { process.stdout.write(`wclip ${VERSION}\n`); return 0; }
+  if (positionals.length > 1) die(`expected one URL, got ${positionals.length}`);
+  const args: Args = { ...values, url: positionals[0] };
+  if (args.browser && args['no-browser']) die('--browser and --no-browser exclude each other');
+
+  if (values['init-config']) {
+    const p = configPath();
+    if (existsSync(p)) die(`config already exists: ${p}`);
+    writePrivate(p, DEFAULT_CONFIG_TEMPLATE);
+    info(`Wrote default config: ${p}`);
+    return 0;
+  }
+  const cfg = await loadConfig();
+  if (args.interactive) await interactiveClip(args.url ?? '', args, cfg);
+  else if (args.url) await batchClip(normalizeUrl(args.url), args, cfg);
+  else { process.stderr.write(HELP); return 1; }
+  return 0;
+}
+
+process.on('SIGINT', () => { process.stderr.write('\naborted\n'); process.exit(130); });
+// exitCode, not exit(): exit() can cut off a large note still being piped from --stdout.
+main().finally(closeInput).then(code => { process.exitCode = code; }, e => {
+  if (e instanceof WebclipError) process.stderr.write(`error: ${e.message}\n`);
+  else process.stderr.write(`error: ${(e as Error).stack ?? e}\n`);
+  process.exitCode = 1;
+});

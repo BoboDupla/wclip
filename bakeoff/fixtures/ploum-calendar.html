@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" content="text/html" >
+<meta name="description" content="How I fell in love with calendar.txt par Ploum - Lionel Dricot." >
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="fediverse:creator" content="@ploum@mamot.fr" >
+<meta property="og:title" content="How I fell in love with calendar.txt" >
+<meta property="og:url" content="https://ploum.net/2025-09-03-calendar-txt.html" >
+<meta property="og:type" content="article" >
+<meta property="og:article:author" content="Ploum - Lionel Dricot" >
+<meta property="og:article:published_time" content="2025-09-03" >
+<meta property="og:image" content="https://ploum.net/files/bikepunk_logo_petit.png" >
+<title>How I fell in love with calendar.txt</title>
+<link href="atom.xml" type="application/atom+xml" rel="alternate" title="Ploum.net complet (FR + EN)" >
+<link href="atom_en.xml" type="application/atom+xml" rel="alternate" title="Ploum.net English only (EN)" >
+<link href="atom_fr.xml" type="application/atom+xml" rel="alternate" title="Ploum.net en français (FR)" >
+<link href="https://mamot.fr/@ploum" rel="me" >
+<link rel="human-json" href="/human.json">
+<link rel="shortcut icon" href="/files/favicon.ico" >
+<link rel="canonical" href="https://ploum.net/2025-09-03-calendar-txt.html">
+<style>
+body{	
+	color:#444;background:#fdf6e3;
+	margin:40px auto;
+	max-width:650px;
+	line-height:1.4;
+	font-size:1.13em;
+	padding:0 10px;}
+h1{line-height:1.2; text-align:center}
+h2{line-height:1.2; border-bottom: 1px solid;}
+h3{line-height:1; border-bottom: 1px solid;}
+pre{
+	overflow: auto;
+}
+pre,blockquote,.signature{
+	padding: 1em;
+	background:#eee8d5;
+}
+blockquote,.signature{	
+	font-style: italic;
+	margin: 2em 1em;}
+p,ul,ol { list-style-type: circle;}
+a { color:#169;text-decoration:none; padding:0.3em 0;}
+a:visited {color: #886699;}
+a:hover { text-decoration:underline;}
+.center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  width: 80%;
+}
+figcaption{ font-style: italic; font-size: 90%; text-align: center;}
+.header{
+	margin: 1em 0;
+	display: block;
+	width:100%;
+}
+.subtitle {text-align: center; font-style: italic;}
+.navbar{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-direction: row;
+	text-align: center;
+	font-variant: small-caps;
+	font-weight: bold;
+}
+.horizontal { text-align: center; padding:10px 40px;}
+.horizontal li{display: inline-block; margin: 0 0.5em;}
+a[href^="mailto"]::after {content:' 📧';}
+a[href^="gemini"]::after {content:' 🚀';}
+a[href^="https://www.obsessivefacts.com/gemini-proxy"]::after {content:' 🚀';}
+</style>
+</head>
+<body>
+<div class="navbar">
+	<a href="/index_all.html">Blog</a>
+	<a href="/livres.html">Livres</a>
+	<a href="/software.html">Software</a>
+	<a href="/about.html">À Propos</a>
+</div>
+<article>
+
+<h1>How I fell in love with calendar.txt</h1>
+<p class="subtitle">by <a href="https://fr.wikipedia.org/wiki/Ploum">Ploum</a> on 2025-09-03</p>
+<p>The more I learn about Unix tools, the more I realise we are reinventing everyday Rube Goldberg’s wheels and that Unix tools are, often, elegantly enough.</p>
+<p>Months ago, I discovered calendar.txt. A simple file with all your dates which was so simple and stupid that I wondered 1) why I didn’t think about it myself and, 2) how it could be useful.</p>
+<ul>
+<li><a href="https://terokarvinen.com/2021/calendar-txt/">Calendar.txt (terokarvinen.com)</a></li>
+</ul>
+<p>I downloaded the file and tried it. Without thinking much about it, I realised that I could add the following line to my offpunk startup:</p>
+<blockquote> !grep `date -I` calendar.txt --color<br></blockquote>
+<p>And, just like that, I suddenly have important things for my day everytime I start Offpunk. In my &quot;do_the_internet.sh&quot;, I added the following:</p>
+<blockquote> grep `date -I`calendar.txt --color -A 7<br></blockquote>
+<p>Which allows me to have an overview of the next seven days. </p>
+<p>But what about editing? This is the alias I added to my shell to automatically edit today’s date:</p>
+<blockquote> alias calendar=&quot;vim +/`date -I` ~/inbox/calendar.txt&quot;<br></blockquote>
+<p>It feels so easy, so elegant, so simple. All those aliases came naturally, without having to spend more than a few seconds in the man page of &quot;date&quot;. No need to fiddle with a heavy web interface. I can grep through my calendar. I can edit it with vim. I can share it, save it and synchronise it without changing anything else, without creating any account. Looking for a date, even far in the future, is as simple as typing &quot;/YEAR-MONTH-DAY&quot; in vim.</p>
+<h2 id="soustitre-1">Recurring events</h2>
+<p>The icing on the cake became apparent when I received my teaching schedule for the next semester. I had to add a recurring event every Tuesday minus some special cases where the university is closed.</p>
+<p>Not a big deal. I do it each year, fiddling with the web interface of my calendar to find the good options to make the event recurrent then removing those special cases without accidentally removing the whole series.</p>
+<p>It takes at most 10 minutes, 15 if I miss something. Ten minutes of my life that I hate, forced to use a mouse and click on menus which are changing every 6 months because, you know, &quot;yeah, redesign&quot;.</p>
+<p>But, with my calendar.txt, it takes exactly 15 seconds.</p>
+<blockquote> /Tue<br></blockquote>
+<p>To find the first Tuesday.</p>
+<blockquote> i<br></blockquote>
+<p>To write the course number and classroom number, escape then</p>
+<blockquote> n.n.n.n.n.n.nn.n.n.n.nn.n.n.n.n.<br></blockquote>
+<p>I’m far from being a Vim expert but this occurred naturally, without really thinking about the tool. I was only focused on the date being correct. It was quick and pleasant.</p>
+<h2 id="soustitre-2">Shared events and collaboration</h2>
+<p>I read my email in Neomutt. When I’m invited to an event, I must open a browser to access the email through my webmail and click the &quot;Yes&quot; button in order to have it added to my calendar. Events I didn’t respond show in my calendar, even if I don’t want them. It took me some settings-digging not to display events I refused. Which is kinda dumb but so are the majority of our tools those days.</p>
+<p>With calendar.txt, I manually enter the details from the invitation, which is not perfect but takes less time than opening a browser, login into a webmail and clicking a button while waiting at each step the loading of countless of JavaScript libraries.</p>
+<p>Invitations are rare enough that I don’t mind entering the details by hand. But I’m thinking about doing a small bash script that would read an ICS file and add it to calendar.txt. It looks quite easy to do.</p>
+<p>I also thought about doing the reverse : a small script that would create an ICS and send it by email to any address added to an event. But it would be hard to track down which events were already sent and which ones are new. Let’s stick to the web interface when I need to create a shared event.</p>
+<p>Calendar.txt should remain simple and for my personal use. The point of Unix tools is to allow you to create the tools you need for yourself, not create a startup with a shiny name/logo that will attract investors hoping to make billions in a couple of years by enshitifying the life of captive users.</p>
+<p>And when you work with a team, you are stuck anyway with the worst possible tool that satisfies the need of the dumbest member of the team. Usually the manager.</p>
+<p>With Unix tools, each solution is personal and different from the others.</p>
+<ul>
+<li><a href="https://tangled.sh/@oppi.li/journal">Other source of inspiration : Jouraling with neovim/coreutils and dateutils (tangled.sh)</a></li>
+</ul>
+<h2 id="soustitre-3">Simplifying calendaring</h2>
+<p>Another unexpected advantage of the system is that you don’t need to guess the end date of events anymore. All I need to know is that I have a meeting at 10 and a lunch at 12. I don’t need to estimate the duration of the meeting which is, anyway, usually only a rough estimation and not an important information. But you can’t create an event in modern calendar without giving a precise end.</p>
+<p>Calendar.txt is simple, calendar.txt is good.</p>
+<p>I can add events without thinking about it, without calendaring being a chore. Sandra explains how she realised that using an online calendar was a chore when she started to use a paper agenda.</p>
+<ul>
+<li><a href="https://idiomdrottning.org/calendaring">When calendar was a verb (idiomdrottning.org)</a></li>
+</ul>
+<p>Going back to a paper calendar is probably something I will end up doing but, in the meantime, calendar.txt is a breeze.</p>
+<h2 id="soustitre-4">Trusting my calendar</h2>
+<p>Most importantly, I now trust my calendar. </p>
+<p>I’ve been burned by this before: I had created my whole journey to a foreign country on my online calendar only to discover upon landing that my calendar had decided to be &quot;smart&quot; and to change all events because I was not in the same time zone. Since then, I actually write the time of an event in the title of the event, even if it looks redundant. This also helps with events being moved by accident while scrolling on a smartphone or in a browser. Which is rare but happened enough to make me anxious.</p>
+<p>I had the realisation that I don’t trust any calendar application because, for events with a very precise time (like a train), I always fall back on checking the confirmation email or PDFs.</p>
+<p>It’s not the case anymore with calendar.txt. I trust the file. I trust the tool.</p>
+<p>There are not many tools you can trust.</p>
+<h2 id="soustitre-5">Mobile calendar.txt</h2>
+<p>I don’t need notifications about events on my smartphone. If a notification tells me about an event I forgot, it would be too late anyway. And if my phone is on silent, like always, the notification is useless anyway. We killed notifications with too much notification, something I addressed here :</p>
+<ul>
+<li><a href="/2025-09-02-mudita.html">Une vie sans notifications (ploum.net)</a></li>
+</ul>
+<p>I do want to consult/edit my calendar on my phone. Getting the file on my phone is easy as having it synchronised with my computer through any mean. It’s a simple txt file.</p>
+<p>Using it is another story.</p>
+<p>Looking at my phone, I realise how far we have fallen: Android doesn’t allow me to do a simple shortcut to that calendar.txt file which would open on the current day. There’s probably a way but I can’t think of one. Probably because I don’t understand that system. After all, I’m not supposed to even try understanding it.</p>
+<p>Android is not Unix. Android, like other proprietary Operating System, is a cage you need to fight against if you don’t want to surrender your choices, your data, your soul. Unix is freedom: hard to conquer but impossible to let go as soon as you tasted it.</p>
+
+<div class="signature"><h3>About the author</h3>
+<p>I’m <a href="https://fr.wikipedia.org/wiki/Ploum">Ploum</a>, a writer and an engineer. I like to explore how technology impacts society. You can subscribe <a href="https://listes.ploum.net/mailman3/lists/en.listes.ploum.net/">by email</a> or <a href="/atom_en.xml">by rss</a>. I value privacy and never share your adress.</p>
+<p>I write <a href="https://pvh-editions.com/ploum">science-fiction novels in French</a>. For <a href="https://bikepunk.fr">Bikepunk</a>, my new post-apocalyptic-cyclist book, my publisher is looking for contacts in other countries to distribute it in languages other than French. If you can help, <a href="about.html">contact me</a>!</p> 
+
+</div>
+</article>
+<hr><p><small>
+Permalinks:<br>
+<a href="https://ploum.net/2025-09-03-calendar-txt.html">https://ploum.net/2025-09-03-calendar-txt.html</a><br>
+<a href="gemini://ploum.net/2025-09-03-calendar-txt.gmi">gemini://ploum.net/2025-09-03-calendar-txt.gmi</a>
+</small>
+</p>
+</body>
+</html>

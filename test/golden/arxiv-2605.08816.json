@@ -1,0 +1,10 @@
+{
+  "title": "Mirror, Mirror on the Wall: Can VLM Agents Tell Who They Are at All?",
+  "author": "Filippo Ziliotto, Ciro Beneduce, Bruno Lepri, Luciano Serafini, Massimiliano Luca, Tommaso Campari",
+  "published": "2026-05-09",
+  "site": "arXiv",
+  "description": "In the animal kingdom, mirror self-recognition is a canonical probe of higher-order cognition, emerging only in some species. We ask whether an analogous functional capability emerges in embodied vision-language model (VLM) agents: can they recognize themselves in a mirror? We introduce a controlled 3D benchmark where a first-person VLM agent must infer a hidden body attribute from its reflection and select the matching target, while avoiding self-other misattribution. To separate mirror-grounded self-identification from shortcuts, we test mirror removal, misleading cues, and occluded reflections. We also evaluate the decision process through mirror seeking, temporal ordering, self-attribution, and reasoning-action consistency. Our experiments show that mirror-based self-identification emerges mainly in stronger VLMs. These models can use reflected evidence for action, whereas weaker models often inspect the mirror but fail to extract self-relevant information or misattribute their reflection. Language-vision conflict further shows that self-referential language alone is not evidence of grounded self-identification. Overall, mirror-based evaluation provides a diagnostic for whether embodied self-grounding is causally rooted in perception and action rather than priors, prompt compliance, or confabulation.",
+  "license": "",
+  "image": "",
+  "words": 13555
+}

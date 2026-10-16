@@ -1,0 +1,14 @@
+{
+  "name": "webclip-bakeoff",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch": "node fetch_fixtures.mjs",
+    "defuddle": "node run_defuddle.mjs",
+    "compare": "node compare.mjs"
+  },
+  "dependencies": {
+    "defuddle": "0.19.5",
+    "linkedom": "0.18.13"
+  }
+}
