@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc",
     "test": "tsc && node --test test/*.test.mjs",
-    "build:bin": "tsc && bun build --compile --minify --target=bun-linux-x64 --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-x64 && bun build --compile --minify --target=bun-linux-arm64 --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-arm64",
+    "build:bin": "tsc && bun build --compile --minify --target=bun-linux-x64 --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-x64 && bun build --compile --minify --target=bun-linux-x64-baseline --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-x64-baseline && bun build --compile --minify --target=bun-linux-arm64 --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-arm64",
     "test:bin": "sh test/binary-smoke.sh build/wclip-linux-x64",
     "build:js": "tsc && bun build --target=node --minify --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-node.js && bun build --target=bun --minify --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-bun.js && sed -i '1s|^#!/usr/bin/env node|#!/usr/bin/env bun|' build/wclip-bun.js"
   },

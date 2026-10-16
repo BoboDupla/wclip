@@ -10,13 +10,23 @@ Obsidian Web Clipper) with the fixes from the bake-off (`bakeoff/VERDICT.md`).
 
 ## Install
 
+**From a release:** each `v*` tag gets a GitHub Release with the files below and a
+`SHA256SUMS`. The repository is private, so downloading needs your GitHub login, e.g. with the
+GitHub CLI:
+
+```sh
+gh release download -R BoboDupla/wclip -p wclip-linux-x64 -p SHA256SUMS   # latest release
+sha256sum --ignore-missing -c SHA256SUMS && install -m 755 wclip-linux-x64 ~/.local/bin/wclip
+```
+
 Build outputs aren't committed; `npm ci` then `npm run build:bin` / `npm run build:js` make them
 in `build/`.
 
 **Single binary (no Node needed):** copy `build/wclip-linux-x64` (or `-arm64`) somewhere on
 your `$PATH` as `wclip` and `chmod +x` it. It's about 95 MB because it carries the Bun runtime.
 Built with `bun build --compile` (Bun 1.4.3); it needs glibc, and the x64 build needs a CPU
-from roughly 2013 or later (AVX2); for older CPUs build with `--target=bun-linux-x64-baseline`.
+from roughly 2013 or later (AVX2); for older CPUs use `wclip-linux-x64-baseline`. The arm64
+build is cross-compiled and hasn't been run on real arm64 hardware yet.
 
 **Single JavaScript file (about 5.7 MB, uses your installed runtime):** `build/wclip-node.js`
 runs with Node.js 20+ (`node wclip-node.js URL`), `build/wclip-bun.js` with Bun
@@ -110,6 +120,14 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
   epubcheck 5.2.1 with 0 errors and 0 warnings.
 - Page charset is honoured (e.g. windows-1250), instead of assuming UTF-8.
 - Headless browser as a last resort, instead of "use Hermes" errors.
+
+## Releasing
+
+Bump the version in `package.json` and `src/fetch.ts`, merge, then push a tag:
+`git tag v0.2.0 && git push origin v0.2.0`. The `Release` workflow checks that the tag matches
+both versions, runs the tests, builds the binaries and bundles, smoke-tests the x64 ones and
+publishes the release. A tag with a hyphen (`v0.3.0-rc1`) becomes a pre-release. The same
+workflow runs on pull requests, without publishing.
 
 ## Tests
 
