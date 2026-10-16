@@ -1,0 +1,15 @@
+# slug URL  — one per line; fetch_fixtures.mjs saves fixtures/<slug>.html
+# Fill with real article URLs (not index pages). Hard cases from the old script:
+# ars-multidiv   https://arstechnica.com/...        (body split across post-content divs)
+# arxiv-math     https://arxiv.org/html/...         (MathML equations)
+# ploum          https://ploum.net/...              (mangled non-browser requests)
+# tante-decoy    https://tante.cc/...               (fake page for browser UAs)
+# plus: a Substack post, a Medium post, a Czech site, a JS-heavy SPA page
+tante-friction    https://tante.cc/2025/07/30/friction-and-not-being-touched/
+tante-fund        https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/
+ploum-calendar    https://ploum.net/2025-09-03-calendar-txt.html
+ploum-ai-policy   https://ploum.net/2026-09-09-ai_policy.html
+arxiv-2605.08816  https://arxiv.org/html/2605.08816v1
+arxiv-2507.21509  https://arxiv.org/html/2507.21509v3
+ars-meta-yandex   https://arstechnica.com/security/2025/06/meta-and-yandex-are-de-anonymizing-android-users-web-browsing-identifiers/
+ars-meta-piracy   https://arstechnica.com/tech-policy/2025/07/meta-pirated-and-seeded-porn-for-years-to-train-ai-lawsuit-says/

@@ -1,0 +1,67 @@
+{
+  "title": "How I fell in love with calendar.txt",
+  "description": "How I fell in love with calendar.txt par Ploum - Lionel Dricot.",
+  "domain": "ploum.net",
+  "favicon": "/files/favicon.ico",
+  "image": "https://ploum.net/files/bikepunk_logo_petit.png",
+  "language": "en",
+  "published": "",
+  "author": "Ploum on 2025-09-03",
+  "site": "Ploum on 2025-09-03",
+  "schemaOrgData": [],
+  "wordCount": 1199,
+  "parseTime": 18,
+  "metaTags": [
+    {
+      "name": null,
+      "property": null,
+      "content": "text/html"
+    },
+    {
+      "name": "description",
+      "property": null,
+      "content": "How I fell in love with calendar.txt par Ploum - Lionel Dricot."
+    },
+    {
+      "name": "viewport",
+      "property": null,
+      "content": "width=device-width, initial-scale=1"
+    },
+    {
+      "name": "fediverse:creator",
+      "property": null,
+      "content": "@ploum@mamot.fr"
+    },
+    {
+      "name": null,
+      "property": "og:title",
+      "content": "How I fell in love with calendar.txt"
+    },
+    {
+      "name": null,
+      "property": "og:url",
+      "content": "https://ploum.net/2025-09-03-calendar-txt.html"
+    },
+    {
+      "name": null,
+      "property": "og:type",
+      "content": "article"
+    },
+    {
+      "name": null,
+      "property": "og:article:author",
+      "content": "Ploum - Lionel Dricot"
+    },
+    {
+      "name": null,
+      "property": "og:article:published_time",
+      "content": "2025-09-03"
+    },
+    {
+      "name": null,
+      "property": "og:image",
+      "content": "https://ploum.net/files/bikepunk_logo_petit.png"
+    }
+  ],
+  "ms": 20
+}

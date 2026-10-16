@@ -1,0 +1,300 @@
+{
+  "title": "What kind of Software should we fund?",
+  "description": "Laurie Voss, who was one of the founder of NPM, the Javascript package repository that is now run by Microsoft, has written a longer post about an idea about how to fund Free Software that I found interesting. It’s worth reading if you have some time and makes good points even though I will critique […]",
+  "domain": "tante.cc",
+  "favicon": "https://tante.cc/wp-content/uploads/2021/01/cropped-avatar-32x32.jpg",
+  "image": "https://tante.cc/wp-content/uploads/2026/09/sayzxus1o3m.jpg",
+  "language": "en-US",
+  "published": "2026-09-16T22:09:59+00:00",
+  "author": "tante",
+  "site": "Smashing Frames",
+  "schemaOrgData": [
+    {
+      "@type": "Article",
+      "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#article",
+      "isPartOf": {
+        "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/"
+      },
+      "author": {
+        "name": "tante",
+        "@id": "https://tante.cc/#/schema/person/b4acb3178432b08829ae3775fd77f402"
+      },
+      "headline": "What kind of Software should we fund?",
+      "datePublished": "2026-09-16T22:09:59+00:00",
+      "dateModified": "2026-09-17T17:42:18+00:00",
+      "mainEntityOfPage": {
+        "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/"
+      },
+      "wordCount": 1703,
+      "publisher": {
+        "@id": "https://tante.cc/#/schema/person/b4acb3178432b08829ae3775fd77f402"
+      },
+      "image": {
+        "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#primaryimage"
+      },
+      "thumbnailUrl": "https://tante.cc/wp-content/uploads/2026/09/sayzxus1o3m.jpg",
+      "keywords": [
+        "free software",
+        "funding",
+        "humanism",
+        "open source"
+      ],
+      "articleSection": [
+        "english",
+        "Writing"
+      ],
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/",
+      "url": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/",
+      "name": "What kind of Software should we fund?",
+      "isPartOf": {
+        "@id": "https://tante.cc/#website"
+      },
+      "primaryImageOfPage": {
+        "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#primaryimage"
+      },
+      "image": {
+        "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#primaryimage"
+      },
+      "thumbnailUrl": "https://tante.cc/wp-content/uploads/2026/09/sayzxus1o3m.jpg",
+      "datePublished": "2026-09-16T22:09:59+00:00",
+      "dateModified": "2026-09-17T17:42:18+00:00",
+      "breadcrumb": {
+        "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#breadcrumb"
+      },
+      "inLanguage": "en-US",
+      "potentialAction": [
+        {
+          "@type": "ReadAction",
+          "target": [
+            "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/"
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "ImageObject",
+      "inLanguage": "en-US",
+      "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#primaryimage",
+      "url": "https://tante.cc/wp-content/uploads/2026/09/sayzxus1o3m.jpg",
+      "contentUrl": "https://tante.cc/wp-content/uploads/2026/09/sayzxus1o3m.jpg",
+      "width": 1600,
+      "height": 1067,
+      "caption": "A collection of various international banknotes scattered across a flat surface"
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://tante.cc/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "What kind of Software should we fund?"
+        }
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://tante.cc/#website",
+      "url": "https://tante.cc/",
+      "name": "Smashing Frames",
+      "description": "",
+      "publisher": {
+        "@id": "https://tante.cc/#/schema/person/b4acb3178432b08829ae3775fd77f402"
+      },
+      "potentialAction": [
+        {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://tante.cc/?s={search_term_string}"
+          },
+          "query-input": {
+            "@type": "PropertyValueSpecification",
+            "valueRequired": true,
+            "valueName": "search_term_string"
+          }
+        }
+      ],
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": [
+        "Person",
+        "Organization"
+      ],
+      "@id": "https://tante.cc/#/schema/person/b4acb3178432b08829ae3775fd77f402",
+      "name": "tante",
+      "image": {
+        "@type": "ImageObject",
+        "inLanguage": "en-US",
+        "@id": "https://tante.cc/wp-content/uploads/2021/12/cropped-TanteBlackTransparent.png",
+        "url": "https://tante.cc/wp-content/uploads/2021/12/cropped-TanteBlackTransparent.png",
+        "contentUrl": "https://tante.cc/wp-content/uploads/2021/12/cropped-TanteBlackTransparent.png",
+        "width": 656,
+        "height": 169,
+        "caption": "tante"
+      },
+      "logo": {
+        "@id": "https://tante.cc/wp-content/uploads/2021/12/cropped-TanteBlackTransparent.png"
+      },
+      "description": "Sociotechnologist, writer and speaker working on tech and its social impact. Communist. Feminist. Antifascist. Luddite.",
+      "sameAs": [
+        "https://tante.cc",
+        "https://facebook.com/JGeuter",
+        "https://www.instagram.com/t4nte/",
+        "https://www.linkedin.com/in/tante"
+      ],
+      "url": "https://tante.cc/author/tante_/"
+    }
+  ],
+  "wordCount": 1689,
+  "parseTime": 58,
+  "metaTags": [
+    {
+      "name": "viewport",
+      "property": null,
+      "content": "width=device-width, initial-scale=1"
+    },
+    {
+      "name": "robots",
+      "property": null,
+      "content": "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    },
+    {
+      "name": null,
+      "property": "og:locale",
+      "content": "en_US"
+    },
+    {
+      "name": null,
+      "property": "og:type",
+      "content": "article"
+    },
+    {
+      "name": null,
+      "property": "og:title",
+      "content": "What kind of Software should we fund?"
+    },
+    {
+      "name": null,
+      "property": "og:description",
+      "content": "Laurie Voss, who was one of the founder of NPM, the Javascript package repository that is now run by Microsoft, has written a longer post about an idea about how to fund Free Software that I found interesting. It’s worth reading if you have some time and makes good points even though I will critique […]"
+    },
+    {
+      "name": null,
+      "property": "og:url",
+      "content": "https://tante.cc/2026/09/17/what-kind-of-software-should-we-fund/"
+    },
+    {
+      "name": null,
+      "property": "og:site_name",
+      "content": "Smashing Frames"
+    },
+    {
+      "name": null,
+      "property": "article:publisher",
+      "content": "https://facebook.com/JGeuter"
+    },
+    {
+      "name": null,
+      "property": "article:author",
+      "content": "https://facebook.com/JGeuter"
+    },
+    {
+      "name": null,
+      "property": "article:published_time",
+      "content": "2026-09-16T22:09:59+00:00"
+    },
+    {
+      "name": null,
+      "property": "article:modified_time",
+      "content": "2026-09-17T17:42:18+00:00"
+    },
+    {
+      "name": null,
+      "property": "og:image",
+      "content": "https://tante.cc/wp-content/uploads/2026/09/sayzxus1o3m.jpg"
+    },
+    {
+      "name": null,
+      "property": "og:image:width",
+      "content": "1600"
+    },
+    {
+      "name": null,
+      "property": "og:image:height",
+      "content": "1067"
+    },
+    {
+      "name": null,
+      "property": "og:image:type",
+      "content": "image/jpeg"
+    },
+    {
+      "name": "author",
+      "property": null,
+      "content": "tante"
+    },
+    {
+      "name": "twitter:label1",
+      "property": null,
+      "content": "Written by"
+    },
+    {
+      "name": "twitter:data1",
+      "property": null,
+      "content": "tante"
+    },
+    {
+      "name": "twitter:label2",
+      "property": null,
+      "content": "Est. reading time"
+    },
+    {
+      "name": "twitter:data2",
+      "property": null,
+      "content": "8 minutes"
+    },
+    {
+      "name": "generator",
+      "property": null,
+      "content": "WordPress 7.1.3"
+    },
+    {
+      "name": "carrot-page-owner",
+      "property": null,
+      "content": "LZSH-QKBG-VQDQ-DKLW"
+    },
+    {
+      "name": null,
+      "property": "fb:pages",
+      "content": "1763714770514444"
+    },
+    {
+      "name": "fediverse:creator",
+      "property": null,
+      "content": "@tante@tldr.nettime.org"
+    },
+    {
+      "name": "fediverse:creator",
+      "property": "fediverse:creator",
+      "content": "blog@tante.cc"
+    },
+    {
+      "name": "msapplication-TileImage",
+      "property": null,
+      "content": "https://tante.cc/wp-content/uploads/2021/01/cropped-avatar-270x270.jpg"
+    }
+  ],
+  "ms": 61
+}

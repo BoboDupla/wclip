@@ -1,0 +1,38 @@
+{
+  "name": "wclip",
+  "version": "0.2.0",
+  "description": "Clip web articles to Markdown notes with YAML frontmatter (Defuddle-based).",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test test/*.test.mjs",
+    "build:bin": "tsc && bun build --compile --minify --target=bun-linux-x64 --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-x64 && bun build --compile --minify --target=bun-linux-arm64 --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-linux-arm64",
+    "test:bin": "sh test/binary-smoke.sh build/wclip-linux-x64",
+    "build:js": "tsc && bun build --target=node --minify --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-node.js && bun build --target=bun --minify --external 'chromium-bidi/*' src/cli.ts --outfile build/wclip-bun.js && sed -i '1s|^#!/usr/bin/env node|#!/usr/bin/env bun|' build/wclip-bun.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "defuddle": "0.19.5",
+    "fflate": "^0.8.3",
+    "linkedom": "0.18.13",
+    "marked": "^18.1.1",
+    "marked-footnote": "^1.4.0",
+    "temml": "^0.14.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.64.1"
+  },
+  "type": "module",
+  "private": true,
+  "bin": {
+    "wclip": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
