@@ -133,14 +133,6 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 - Page charset is honoured (e.g. windows-1250) instead of assuming UTF-8.
 - Headless browser as a last resort for pages that only render with JavaScript.
 
-## Releasing
-
-Bump the version in `package.json` and `src/fetch.ts`, merge, then push a tag:
-`git tag v0.4.1 && git push origin v0.4.1`. The `Release` workflow checks that the tag matches
-both versions, runs the tests, builds the binaries and bundles, smoke-tests the x64 ones and
-publishes the release. A tag with a hyphen (`v0.4.1-rc1`) becomes a pre-release. The same
-workflow runs on pull requests, without publishing.
-
 ## Tests
 
 `npm run build:bin` rebuilds the binaries; `npm run test:bin` checks the x64 binary against the
