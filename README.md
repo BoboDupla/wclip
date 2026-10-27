@@ -49,8 +49,9 @@ ln -s "$PWD/wclip" ~/.local/bin/wclip   # the launcher installs and builds on fi
 wclip https://ploum.net/2025-09-03-calendar-txt.html
 ```
 
-To update a source install, `git pull` and delete `dist/`; the launcher reinstalls locked
-dependencies and rebuilds it on the next run. Developer installs can use `npm ci && npm run build`.
+To update a source install, just `git pull`: the launcher compares a fingerprint of `src/` and
+the lockfiles against `dist/.build-stamp` and reinstalls/rebuilds when they changed. Developer
+installs can use `npm ci && npm run build`.
 
 On first run the launcher installs locked runtime dependencies into `node_modules/` and locked
 compiler tools into `tooling/node_modules/`, with lifecycle scripts disabled. It compiles `src/`
@@ -178,7 +179,9 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 ## Tests
 
 `npm run build:bin` rebuilds the binaries; `npm run test:bin` checks the x64 binary against the
-same golden pages, the HTML/EPUB output and the headless browser fallback.
+same golden pages, the HTML/EPUB output, the headless browser fallback and the SSRF policy. The
+binary is Bun-compiled, so those checks are what prove the security policy on the runtime that
+actually ships; the Node suite alone does not.
 
 ```sh
 npm ci && npm test     # builds, then runs the test suite offline
