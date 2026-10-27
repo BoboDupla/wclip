@@ -33,7 +33,7 @@ runs with Node.js 20+ (`node wclip-node.js URL`), `build/wclip-bun.js` with Bun
 (`bun wclip-bun.js URL`). Everything is bundled in, so there is no `npm install`.
 Rebuild with `npm run build:js`.
 
-**From source:** needs Node.js 20 or newer (tests pass on 20.20 and 22.22).
+**From source:** needs Node.js 20 or newer. CI builds and tests on Node 24.
 
 ```sh
 git clone https://github.com/BoboDupla/wclip.git && cd wclip
