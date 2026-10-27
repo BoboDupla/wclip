@@ -9,9 +9,16 @@
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
+import { Transform, Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import {
+  assertPublicAddress, byteLimits, checkedUrl, guardedLookup, NetworkPolicyError,
+  type RequestPolicy,
+} from './network-policy.js';
 import { warn } from './util.js';
+export { DEFAULT_MAX_BYTES, DEFAULT_MAX_DECODED_BYTES, type RequestPolicy } from './network-policy.js';
 
-export const VERSION = '0.4.1';
+export const VERSION = '0.5.0';
 export const HONEST_UA = `wclip/${VERSION} (personal article clipper)`;
 export const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
 
@@ -55,56 +62,136 @@ interface RawResponse {
   url: string;
 }
 
-function decompress(buf: Buffer, encoding: string | undefined): Buffer {
-  switch ((encoding ?? '').trim().toLowerCase()) {
-    case 'gzip': case 'x-gzip': return zlib.gunzipSync(buf);
-    case 'deflate': return zlib.inflateSync(buf);
-    case 'br': return zlib.brotliDecompressSync(buf);
-    default: return buf;
-  }
-}
-
-// One GET, following redirects. `tls` lets tests trust a self-signed certificate.
-export function get(url: string, headers: Record<string, string>, timeoutSec: number,
-                    tls: https.RequestOptions = {}): Promise<RawResponse> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { req?.destroy(new HttpError(`timed out after ${timeoutSec} s`)); }, timeoutSec * 1000);
-    let req: http.ClientRequest | undefined;
-    const done = (fn: () => void) => { clearTimeout(timer); fn(); };
-    const go = (u: URL, hops: number) => {
-      const mod = u.protocol === 'https:' ? https : u.protocol === 'http:' ? http : null;
-      if (!mod) return done(() => reject(new HttpError(`unsupported URL scheme ${u.protocol}`)));
-      req = mod.get(u, { headers, ...(u.protocol === 'https:' ? tls : {}) }, (res) => {
-        const status = res.statusCode ?? 0;
-        const loc = res.headers.location;
-        if (status >= 300 && status < 400 && loc) {
-          res.resume();
-          if (hops >= MAX_REDIRECTS) return done(() => reject(new HttpError('too many redirects')));
-          return go(new URL(loc, u), hops + 1);
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
-        res.on('error', (e) => done(() => reject(e)));
-        res.on('end', () => done(() => {
-          try {
-            resolve({ status, headers: res.headers, body: decompress(Buffer.concat(chunks), res.headers['content-encoding']), url: u.href });
-          } catch (e) {
-            reject(e);
-          }
-        }));
-      });
-      req.on('error', (e) => done(() => reject(e)));
-    };
-    try {
-      go(new URL(url), 0);
-    } catch (e) {
-      done(() => reject(e));
-    }
+// Every decoding stage is bounded, not only the final output. A stacked encoding
+// could otherwise expand enormously in an intermediate stage and shrink afterwards.
+function limitBytes(limit: number, label: string): Transform {
+  let bytes = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytes += chunk.length;
+      callback(bytes > limit ? new HttpError(`${label} exceeds ${limit} bytes`) : null, chunk);
+    },
   });
 }
 
+async function readBody(res: http.IncomingMessage, policy: RequestPolicy, signal: AbortSignal): Promise<Buffer> {
+  const { maxBytes, maxDecodedBytes } = byteLimits(policy);
+  const length = res.headers['content-length'];
+  if (length !== undefined && (!/^\d+$/.test(length) || Number(length) > maxBytes)) {
+    res.destroy();
+    throw new HttpError(`response Content-Length exceeds ${maxBytes} wire bytes`);
+  }
+  const encodings = (res.headers['content-encoding'] ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (encodings.length > 4) {
+    res.destroy();
+    throw new HttpError('too many stacked Content-Encoding layers (maximum 4)');
+  }
+  const streams: (http.IncomingMessage | Transform | Writable)[] = [res, limitBytes(maxBytes, 'response wire body')];
+  try {
+    for (const encoding of encodings.reverse()) {
+      let decoder: Transform;
+      switch (encoding) {
+        case 'identity': continue;
+        case 'gzip': case 'x-gzip': decoder = zlib.createGunzip(); break;
+        case 'deflate': decoder = zlib.createInflate(); break;
+        case 'br': decoder = zlib.createBrotliDecompress(); break;
+        default: throw new HttpError(`unsupported Content-Encoding ${encoding}`);
+      }
+      streams.push(decoder, limitBytes(maxDecodedBytes, 'decoded response body'));
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    streams.push(new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        total += chunk.length;
+        if (total > maxDecodedBytes) return callback(new HttpError(`decoded response body exceeds ${maxDecodedBytes} bytes`));
+        chunks.push(chunk);
+        callback();
+      },
+    }));
+    await pipeline(streams as [http.IncomingMessage, ...Transform[], Writable], { signal });
+    return Buffer.concat(chunks, total);
+  } finally {
+    for (const stream of streams) stream.destroy();
+  }
+}
+
+// Only TLS settings may be overridden: a caller-supplied lookup/agent/socketPath/
+// createConnection/hostname must not sidestep the guarded connection destination.
+function tlsSettings(tls: https.RequestOptions): https.RequestOptions {
+  const keys = ['ca', 'cert', 'key', 'pfx', 'passphrase', 'rejectUnauthorized', 'checkServerIdentity',
+    'minVersion', 'maxVersion', 'ciphers', 'secureOptions', 'secureProtocol', 'ecdhCurve', 'sigalgs', 'crl', 'honorCipherOrder'] as const;
+  return Object.fromEntries(keys.filter(key => tls[key] !== undefined).map(key => [key, tls[key]]));
+}
+
+// One GET with a single wall-clock deadline across DNS, redirects and decoding.
+// node:https intentionally preserves its no-ALPN TLS hello; do not replace with fetch().
+export async function get(url: string, headers: Record<string, string>, timeoutSec: number,
+                          tls: https.RequestOptions = {}, policy: RequestPolicy = {}): Promise<RawResponse> {
+  byteLimits(policy);
+  if (!Number.isFinite(timeoutSec) || timeoutSec <= 0 || timeoutSec * 1000 > 0x7fffffff) {
+    throw new HttpError('timeout must be a positive number of seconds (at most 2147483)');
+  }
+  let current = checkedUrl(url, policy);
+  const controller = new AbortController();
+  const timeoutError = new HttpError(`timed out after ${timeoutSec} s`);
+  let request: http.ClientRequest | undefined;
+  let response: http.IncomingMessage | undefined;
+  let rejectDeadline: (error: Error) => void = () => {};
+  const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
+  const timer = setTimeout(() => {
+    rejectDeadline(timeoutError);
+    controller.abort(timeoutError);
+    response?.destroy();
+    request?.destroy();
+  }, timeoutSec * 1000);
+  const run = async (): Promise<RawResponse> => {
+    for (let hops = 0; ; hops++) {
+      const target = current;
+      const mod = target.protocol === 'https:' ? https : http;
+      response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+        const req = mod.get(target, {
+          ...tlsSettings(tls), headers, agent: false, lookup: guardedLookup(policy), signal: controller.signal,
+        }, resolve);
+        request = req;
+        req.on('error', reject);
+        // Literal IPs bypass lookup; also verify the connected address as defense in
+        // depth. No pooled sockets or alternate-family auto-selection may bypass it.
+        req.on('socket', socket => {
+          socket.once('connect', () => {
+            try {
+              if (!socket.remoteAddress) throw new NetworkPolicyError('connected socket has no remote address');
+              assertPublicAddress(socket.remoteAddress, policy);
+            } catch (error) { req.destroy(error as Error); }
+          });
+        });
+      });
+      const status = response.statusCode ?? 0;
+      const location = response.headers.location;
+      if (status >= 300 && status < 400 && location) {
+        // Never drain an unbounded redirect body or let it retain an open stream.
+        response.destroy();
+        request?.destroy();
+        if (hops >= MAX_REDIRECTS) throw new HttpError('too many redirects');
+        current = checkedUrl(location, policy, target);
+        continue;
+      }
+      const body = await readBody(response, policy, controller.signal);
+      return { status, headers: response.headers, body, url: target.href };
+    }
+  };
+  try {
+    return await Promise.race([run(), deadline]);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+    response?.destroy();
+    request?.destroy();
+  }
+}
+
 export async function fetchPage(url: string, ua: string, timeoutSec: number,
-                                tls: https.RequestOptions = {}): Promise<Page | null> {
+                                tls: https.RequestOptions = {}, policy: RequestPolicy = {}): Promise<Page | null> {
   const label = ua === HONEST_UA ? 'honest UA' : 'browser UA';
   const started = Date.now();
   try {
@@ -113,7 +200,7 @@ export async function fetchPage(url: string, ua: string, timeoutSec: number,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en',
       'Accept-Encoding': 'gzip, deflate, br',
-    }, timeoutSec, tls);
+    }, timeoutSec, tls, policy);
     if (r.status < 200 || r.status > 299) {
       warn(`${label}: HTTP ${r.status} from ${url}`);
       return null;

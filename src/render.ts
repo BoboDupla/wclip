@@ -1,5 +1,5 @@
 // HTML and EPUB renditions of a saved note, with $...$ / $$...$$ math rendered to MathML.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import { Marked } from 'marked';
@@ -11,6 +11,9 @@ import { parse as parseYaml } from 'yaml';
 import type { Config } from './config.js';
 import { formatBytes, isVerbose, note as noteLine, startTask, type Task } from './status.js';
 import { today, warn } from './util.js';
+import { get } from './fetch.js';
+import { safeWriteFile } from './files.js';
+import { MAX_IMAGE_BYTES, protectMath, rasterImageType, safeUrl, sanitizeBody } from './sanitize.js';
 
 const esc = (s: string, quote = false) => {
   s = String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -39,24 +42,6 @@ const HTML_TAGS = new Set(`a abbr address article aside b bdi bdo blockquote br 
 col colgroup dd del details dfn div dl dt em figcaption figure font footer h1 h2 h3 h4 h5 h6 header hr i
 img ins kbd li main mark math nav ol p picture pre q rp rt ruby s samp section small source span strong
 sub summary sup table tbody td tfoot th thead time tr u ul var video wbr`.split(/\s+/));
-const MATH_OR_CODE = /(```[\s\S]*?```|`[^`\n]+`)|\$\$([\s\S]+?)\$\$|(?<![\\$])\$(?=[^\s$])([^$\n]+?)(?<=[^\s$])\$|(<\/?([A-Za-z][\w-]*)(?=[\s/>])[^<>\n]*>)/g;
-const PLACEHOLDER = /WCMATHPH(\d+)Z/g;
-
-function protectMath(md: string): { text: string; store: [string, boolean][] } {
-  const store: [string, boolean][] = [];
-  const text = md.replace(MATH_OR_CODE, (all, code, display, inline, tag, name, offset: number, s: string) => {
-    if (code !== undefined) return code;
-    if (display !== undefined) { store.push([display, true]); return `WCMATHPH${store.length - 1}Z`; }
-    if (inline !== undefined) {
-      // "$5 ... $6"-style money: a digit right after the closing $ and no TeX syntax inside.
-      if (/\d/.test(s[offset + all.length] ?? '') && !/[\\^_{}]/.test(inline)) return all;
-      store.push([inline, false]);
-      return `WCMATHPH${store.length - 1}Z`;
-    }
-    return HTML_TAGS.has(name.toLowerCase()) ? tag : esc(tag);
-  });
-  return { text, store };
-}
 
 function mathToHtml(tex: string, display: boolean): string {
   try {
@@ -67,11 +52,23 @@ function mathToHtml(tex: string, display: boolean): string {
 }
 
 export function renderMarkdown(md: string): string {
-  const { text, store } = protectMath(md);
-  const marked = new Marked({ gfm: true }).use(markedFootnote());
+  const { text, restore } = protectMath(md);
+  const marked = new Marked({ gfm: true }).use(markedFootnote()).use({ renderer: {
+    // Marked, not our math scanner, is the authority on nested/indented code.
+    // Restore any protected dollars inside code as escaped source, never MathML.
+    code({ text, lang }: { text: string; lang?: string }) {
+      const language = lang?.trim().split(/\s+/)[0];
+      return `<pre><code${language ? ` class="language-${esc(language, true)}"` : ''}>${esc(restore(text).replace(/\n$/, ''))}\n</code></pre>\n`;
+    },
+    codespan({ text }: { text: string }) { return `<code>${esc(restore(text))}</code>`; },
+    html({ text }: { text: string }) {
+      const tag = /^<\/?([A-Za-z][\w-]*)\s*\/?>(?:\n)?$/.exec(text);
+      return tag && !HTML_TAGS.has(tag[1].toLowerCase()) ? esc(text) : text;
+    }
+  } });
   // Footnote refs inside raw HTML tables keep Defuddle's "#fn:N" target; point them at marked-footnote's ids.
   const html = (marked.parse(text, { async: false }) as string).replace(/href="#fn:([\w-]+)"/g, 'href="#footnote-$1"');
-  return store.length ? html.replace(PLACEHOLDER, (_, i: string) => mathToHtml(...store[Number(i)])) : html;
+  return sanitizeBody(restore(html, mathToHtml));
 }
 
 // --- XHTML for EPUB: re-serialize the HTML DOM as well-formed XML (void elements closed,
@@ -80,6 +77,7 @@ const VOID = new Set('area base br col embed hr img input link meta source track
 const NS: Record<string, string> = { math: 'http://www.w3.org/1998/Math/MathML', svg: 'http://www.w3.org/2000/svg' };
 const xmlName = (n: string) => /^[A-Za-z_][\w.-]*$/.test(n);
 function validHref(h: string): boolean {
+  if (!safeUrl(h)) return false;
   if (!/^[a-z][\w+.-]*:/i.test(h)) return true; // relative or fragment
   try {
     const u = new URL(h);
@@ -108,7 +106,7 @@ function toXhtml(node: Node): string {
 }
 
 export function htmlToXhtml(html: string): string {
-  const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
+  const { document } = parseHTML(`<!doctype html><html><body>${sanitizeBody(html)}</body></html>`);
   return [...document.body.childNodes].map(n => toXhtml(n as unknown as Node)).join('');
 }
 
@@ -118,28 +116,24 @@ export interface EpubImage { path: string; type: string; data: Uint8Array }
 export type ImageFetcher = (url: string) => Promise<{ type: string; data: Uint8Array } | null>;
 
 const CORE_IMAGE_TYPES: Record<string, string> = {
-  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
 };
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const MAX_EPUB_IMAGE_BYTES = 60 * 1024 * 1024;
+const MAX_EPUB_IMAGES = 128;
 
-function sniffImageType(b: Uint8Array): string {
-  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
-  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif';
-  if (b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
-  if (/^\s*(<\?xml[^>]*>\s*)?<svg/.test(new TextDecoder().decode(b.subarray(0, 256)))) return 'image/svg+xml';
-  return '';
-}
-
-export function makeImageFetcher(userAgent: string, timeoutSec: number): ImageFetcher {
+export function makeImageFetcher(userAgent: string, timeoutSec: number, allowPrivate = false): ImageFetcher {
   return async url => {
     try {
-      const r = await fetch(url, { headers: { 'User-Agent': userAgent }, signal: AbortSignal.timeout(timeoutSec * 1000) });
-      if (!r.ok) return null;
-      const data = new Uint8Array(await r.arrayBuffer());
+      if (!safeUrl(url, true) || !/^https?:/i.test(url)) return null;
+      const r = await get(url, { 'User-Agent': userAgent }, timeoutSec, {},
+        { allowPrivate, maxBytes: MAX_IMAGE_BYTES, maxDecodedBytes: MAX_IMAGE_BYTES });
+      if (r.status < 200 || r.status >= 300) return null;
+      const data = r.body;
       if (data.length > MAX_IMAGE_BYTES) return null;
-      const type = sniffImageType(data) || (r.headers.get('content-type') ?? '').split(';')[0].trim();
-      return CORE_IMAGE_TYPES[type] ? { type, data } : null;
+      const type = rasterImageType(data);
+      if (!type && (String(r.headers['content-type']).includes('svg') || /<svg\b/i.test(new TextDecoder().decode(data.subarray(0, 1024)))))
+        warn('epub: SVG image omitted (active SVG content is not supported)');
+      return type ? { type, data } : null;
     } catch {
       return null;
     }
@@ -149,27 +143,42 @@ export function makeImageFetcher(userAgent: string, timeoutSec: number): ImageFe
 async function embedImages(document: Document, fetchImage: ImageFetcher, makeTask?: () => Task): Promise<EpubImage[]> {
   const imgs = [...document.querySelectorAll('img')];
   const byUrl = new Map<string, Promise<EpubImage | null>>();
-  let n = 0;
-  const load = (url: string) => {
-    if (!byUrl.has(url)) {
-      const i = ++n;
-      byUrl.set(url, fetchImage(url).then(r => { tick(); return r && { path: `images/img${i}.${CORE_IMAGE_TYPES[r.type]}`, ...r }; }));
-    }
-    return byUrl.get(url)!;
-  };
-  // At most 4 downloads at a time.
-  const queue = imgs.map(img => img.getAttribute('src') ?? '').filter(u => /^https?:/.test(u));
-  const total = new Set(queue).size;
+  // Bound unique requests, not image elements, and never schedule omitted URLs again
+  // during DOM replacement. Four workers bound in-flight memory as well as concurrency.
+  const urls = [...new Set(imgs.map(img => img.getAttribute('src') ?? '').filter(u => /^https?:/i.test(u) && safeUrl(u, true)))];
+  const queue = urls.slice(0, MAX_EPUB_IMAGES);
+  if (urls.length > queue.length) warn(`epub: image count limit (${MAX_EPUB_IMAGES}) reached; additional images omitted`);
+  const total = queue.length;
   const task = total ? makeTask?.() : undefined;
-  let loaded = 0;
+  let loaded = 0, bytes = 0, n = 0;
   const tick = () => task?.progress(++loaded, total);
   task?.progress(0, total);
-  const workers = Array.from({ length: 4 }, async () => { for (let u; (u = queue.shift()); ) await load(u); });
+  const load = async (url: string, i: number): Promise<EpubImage | null> => {
+    try {
+      const r = await fetchImage(url);
+      if (!r) return null;
+      const type = rasterImageType(r.data);
+      if (r.type === 'image/svg+xml') warn('epub: SVG image omitted (active SVG content is not supported)');
+      if (!type || !CORE_IMAGE_TYPES[type] || r.data.length > MAX_IMAGE_BYTES) return null;
+      if (bytes + r.data.length > MAX_EPUB_IMAGE_BYTES) {
+        warn('epub: total image budget (60 MiB) reached; image omitted');
+        return null;
+      }
+      bytes += r.data.length;
+      return { path: `images/img${i}.${CORE_IMAGE_TYPES[type]}`, type, data: r.data };
+    } catch { return null; }
+    finally { tick(); }
+  };
+  const workers = Array.from({ length: 4 }, async () => { for (let u; (u = queue.shift()); ) {
+    const pending = load(u, ++n);
+    byUrl.set(u, pending);
+    await pending;
+  } });
   await Promise.all(workers);
   let failed = 0;
   for (const img of imgs) {
     const src = img.getAttribute('src') ?? '';
-    const got = /^https?:/.test(src) ? await load(src) : null;
+    const got = await byUrl.get(src) ?? null;
     img.removeAttribute('srcset');
     img.removeAttribute('sizes');
     if (got) {
@@ -217,11 +226,14 @@ export function noteToHtml(note: string, stem: string): string {
   const { fm, body } = parseNote(note);
   const { title, source, created, authors } = frontmatterBits(fm, stem);
   let byline = authors.map(a => esc(a)).join(' &middot; ');
-  if (source) byline += ` &middot; <a href="${esc(source, true)}">source</a>`;
+  if (source && safeUrl(source)) byline += ` &middot; <a href="${esc(source, true)}">source</a>`;
+  const sourceLink = source && safeUrl(source) ? `<a href="${esc(source, true)}">${esc(source)}</a>` : esc(source);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <style>
@@ -233,7 +245,7 @@ ${HTML_STYLE}
 <h1>${esc(title)}</h1>
 <div class="byline">${byline}</div>
 ${renderMarkdown(body)}
-<footer>Clipped from <a href="${esc(source, true)}">${esc(source)}</a> on ${esc(created)}</footer>
+<footer>Clipped from ${sourceLink} on ${esc(created)}</footer>
 </article>
 </body>
 </html>
@@ -249,7 +261,7 @@ export async function noteToEpub(note: string, stem: string, fetchImage: ImageFe
   const bodyX = [...document.body.childNodes].map(n => toXhtml(n as unknown as Node)).join('');
   const t = esc(title);
   const byline = authors.map(a => esc(a)).join(' &#183; '); // &middot; is not XML-declared
-  const sourceLink = source ? `<a href="${esc(source, true)}">${esc(source)}</a>` : '';
+  const sourceLink = source && safeUrl(source) ? `<a href="${esc(source, true)}">${esc(source)}</a>` : esc(source);
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -327,7 +339,7 @@ export async function writeExports(destMd: string, note: string, cfg: Config, fe
     try {
       const data = await make();
       mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, data);
+      safeWriteFile(out, data, true);
       if (isVerbose()) noteLine(`  wrote ${out} (${formatBytes(typeof data === 'string' ? new TextEncoder().encode(data).length : data.length)})`);
     } catch (e) {
       warn(`could not write ${out.endsWith('.epub') ? 'epub' : 'html'} rendition: ${(e as Error).message}`);

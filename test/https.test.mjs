@@ -35,7 +35,7 @@ before(async () => {
 });
 after(() => server.close());
 
-const get = (path) => fetchPage(`${base}${path}`, HONEST_UA, 5, { ca: cert });
+const get = (path) => fetchPage(`${base}${path}`, HONEST_UA, 5, { ca: cert }, { allowPrivate: true });
 
 test('the TLS hello offers no ALPN (Cloudflare blocks the one Node fetch() sends)', async () => {
   offeredAlpn = [];

@@ -1,0 +1,14 @@
+{
+  "name": "wclip-bootstrap-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lockfile-pinned compiler and types for the source launcher; no lifecycle scripts.",
+  "dependencies": {
+    "@types/node": "26.6.5",
+    "@types/sanitize-html": "2.16.2",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

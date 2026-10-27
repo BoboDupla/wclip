@@ -55,8 +55,9 @@ export function buildNote(f: Fields, content: string, cfg: Config): string {
       warn(`custom_properties key '${k}' collides with a known property (skipped)`);
       continue;
     }
-    if (Array.isArray(v)) lines.push(`${k}:`, ...v.map(item => `  - ${yamlStr(String(item))}`));
-    else lines.push(`${k}: ${yamlStr(String(v))}`);
+    const key = /^[a-zA-Z_][a-zA-Z0-9_ -]*$/.test(k) ? k : yamlStr(k);
+    if (Array.isArray(v)) lines.push(`${key}:`, ...v.map(item => `  - ${yamlStr(String(item))}`));
+    else lines.push(`${key}: ${yamlStr(String(v))}`);
   }
   lines.push('---', '', content.trim(), '');
   return lines.join('\n');

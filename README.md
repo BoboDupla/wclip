@@ -22,7 +22,7 @@ rather than by who wrote it.
 
 ```sh
 gh release download -R BoboDupla/wclip -p wclip-linux-x64 -p SHA256SUMS   # latest release
-sha256sum --ignore-missing -c SHA256SUMS && install -m 755 wclip-linux-x64 ~/.local/bin/wclip
+sha256sum --ignore-missing -c SHA256SUMS && mkdir -p ~/.local/bin && install -m 755 wclip-linux-x64 ~/.local/bin/wclip
 ```
 
 Build outputs aren't committed; `npm ci` then `npm run build:bin` / `npm run build:js` make them
@@ -36,11 +36,11 @@ build is cross-compiled from x64 and is not covered by the CI smoke test; it has
 hand on a real aarch64 host (version, a clip, HTML and EPUB exports).
 
 **Single JavaScript file (about 5.7 MB, uses your installed runtime):** `build/wclip-node.js`
-runs with Node.js 20+ (`node wclip-node.js URL`), `build/wclip-bun.js` with Bun
+runs with Node.js 22.12+ (`node wclip-node.js URL`), `build/wclip-bun.js` with Bun
 (`bun wclip-bun.js URL`). Everything is bundled in, so there is no `npm install`.
 Rebuild with `npm run build:js`.
 
-**From source:** needs Node.js 20 or newer. CI builds and tests on Node 24.
+**From source:** needs Node.js 22.12 or newer. CI builds and tests on Node 24.
 
 ```sh
 git clone https://github.com/BoboDupla/wclip.git && cd wclip
@@ -49,13 +49,12 @@ ln -s "$PWD/wclip" ~/.local/bin/wclip   # the launcher installs and builds on fi
 wclip https://ploum.net/2025-09-03-calendar-txt.html
 ```
 
-To update a source install, `git pull` and then `npm run build` (or delete `dist/`, the launcher
-rebuilds it on the next run).
+To update a source install, `git pull` and delete `dist/`; the launcher reinstalls locked
+dependencies and rebuilds it on the next run. Developer installs can use `npm ci && npm run build`.
 
-On first run the launcher runs `npm ci --omit=dev` into `node_modules/` and compiles `src/` into
-`dist/` with a pinned TypeScript kept in `.tools/`, the way a virtualenv keeps its own
-interpreter.
-After a `git pull` that changes `src/`, run `npm run build` (or delete `dist/`).
+On first run the launcher installs locked runtime dependencies into `node_modules/` and locked
+compiler tools into `tooling/node_modules/`, with lifecycle scripts disabled. It compiles `src/`
+into `dist/` without a global TypeScript install.
 
 The headless browser fallback needs a Chromium. It uses, in order: `browser.executable` from
 the config, `$WCLIP_CHROMIUM`, Playwright's own download (`npx playwright install chromium`),
@@ -72,7 +71,10 @@ wclip -i [URL]                   interactive: confirm/edit fields
 wclip --init-config              write a default config file
   --browser                      fetch with the headless browser right away
   --no-browser                   never use the headless browser
-  --html FILE                    extract from a page you saved yourself; URL is still the source
+  --html FILE                    extract from saved HTML (20 MiB limit); URL is the source
+  --llm                          explicitly send article text to OpenRouter for this run
+  --no-llm                       never send article text to OpenRouter
+  --allow-private                allow local/intranet page and image requests
   -v, --verbose                  sizes, HTTP status, timings, written files
   -q, --quiet                    no progress lines; warnings, errors, saved path only
   --no-progress                  plain lines instead of a live status line
@@ -105,25 +107,44 @@ and `--no-progress` do the same on a terminal; `progress: false` in the config o
 2. Only if that fails, returns under 2 KB, or yields no text: once more with a Firefox user
    agent, and that result is used only if it is bigger. tante.cc serves a small fake page to
    browser user agents (saved in `test/fixtures/tante-friction.browser-ua.html`), so the order matters.
-3. Only if the result is still empty or under `browser.min_words` (50): headless Chromium,
-   with its own `HeadlessChrome` user agent. Its result is used only if it has more words.
+3. Browser execution is off by default. `--browser` explicitly uses sandboxed Chromium;
+   `browser.mode: auto` opts into a fallback when the result is empty or under
+   `browser.min_words` (50). The fallback is used only if it has more words.
 
-Defuddle's third-party API fallback is off (`useAsync: false`), and Defuddle is given a
-`fetch` that refuses every request, so page content never leaves your machine through it.
-The only other outbound calls are the arXiv API (metadata for arxiv.org pages), OpenRouter
-(tags and summary) and image downloads for the EPUB.
+Defuddle itself has no network access. Other network activity is explicit: fetching the source
+page, an arXiv metadata lookup for arXiv URLs, EPUB image downloads, and OpenRouter **only when
+enabled**. HTML renditions load remote images when viewed, with no referrer. Image hosts can
+still observe your IP and viewing time.
+
+**OpenRouter is disabled by default, even when an API key is present.** `--llm` sends the title
+and up to 15,000 characters of article text through OpenRouter to the configured model.
+`openrouter.enabled: true` opts into this for ordinary public URLs. Saved HTML and runs with
+private-network access still require `--llm` each time. `--no-llm` overrides the config.
+Do not enable it for confidential material without permission to send that material to the
+provider. Overridden or unused tags/description never trigger a call.
+
+Local/intranet destinations and HTTPS-to-HTTP redirects are blocked by default. Use
+`--allow-private` only for intentional local/intranet clipping. Chromium runs with its sandbox
+enabled and fails if that is unavailable; it is not a network-isolation boundary. See
+[SECURITY.md](SECURITY.md) for the threat model, limits and remaining browser-network caveats.
 
 ## Config
 
 `~/.config/wclip/config.yaml` (or `$WCLIP_CONFIG`).
-New, optional keys (defaults apply when they're missing):
+Selected keys (defaults apply when they're missing):
 
 ```yaml
 articles_dir: ~/articles   # notes and their html/ and epub/ land here (default)
 reading_wpm: 200
 progress: true        # live status line on a terminal (false = plain lines)
+allow_private: false
+openrouter:
+  enabled: false
+  api_key: ""         # prefer OPENROUTER_API_KEY in the environment
+  model: "z-ai/glm-5.3-flash"
+  timeout: 60
 browser:
-  mode: auto          # auto | never
+  mode: never         # never | auto; --browser explicitly runs Chromium
   executable: ""      # path to chromium/chrome
   min_words: 50       # fewer extracted words than this counts as a stub
   timeout: 45
@@ -143,7 +164,7 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 - EPUB: images are downloaded into the book, because EPUB 3 does not allow remote images
   (epubcheck RSC-006). All 8 test EPUBs pass epubcheck 5.2.1 with 0 errors and 0 warnings.
 - Page charset is honoured (e.g. windows-1250) instead of assuming UTF-8.
-- Headless browser as a last resort for pages that only render with JavaScript.
+- Explicitly enabled, sandboxed headless browser for pages that only render with JavaScript.
 
 ## Tests
 
@@ -167,7 +188,8 @@ when no Chromium is found.
 
 - `src/cli.ts` flags and the clip flow
 - `src/pipeline.ts` fetch order (honest UA, browser UA, headless browser)
-- `src/fetch.ts`, `src/browser.ts` HTTP and Playwright
+- `src/fetch.ts`, `src/network-policy.ts`, `src/browser.ts` bounded/guarded HTTP and Playwright
+- `src/sanitize.ts`, `src/files.ts` safe output and atomic file writes
 - `src/extract.ts` Defuddle plus one named fix per known extraction failure
 - `src/note.ts` frontmatter; `src/render.ts` HTML/EPUB; `src/llm.ts` OpenRouter; `src/config.ts`
 - `dist/` compiled JavaScript (rebuild with `npm run build`); `build/` the single binaries

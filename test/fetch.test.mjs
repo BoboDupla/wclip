@@ -48,7 +48,7 @@ function encode1250(s) {
   return Buffer.from([...s].map(c => c.charCodeAt(0) < 128 ? c.charCodeAt(0) : map[c] ?? 0x3f));
 }
 
-const cfg = deepMerge(DEFAULTS, { timeout: 10, browser: { mode: 'auto', min_words: 50 } });
+const cfg = deepMerge(DEFAULTS, { allow_private: true, timeout: 10, browser: { mode: 'auto', min_words: 50 } });
 const noBrowser = async () => assert.fail('headless browser must not be used here');
 
 test('tante.cc decoy: the honest UA gets the real article and no browser UA is tried', async () => {

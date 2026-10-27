@@ -1,18 +1,22 @@
 #!/bin/sh
-# wclip launcher: on first run installs the dependencies next to itself and compiles the
-# TypeScript (so no global installs are needed), then runs the CLI. Symlink it into ~/.local/bin.
-set -e
+# wclip launcher: on first run installs lockfile-pinned dependencies next to itself and
+# compiles TypeScript without package lifecycle scripts. Symlink it into ~/.local/bin.
+set -eu
 DIR=$(dirname "$(readlink -f "$0")")
-if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20 ? 1 : 0)'; then
-  echo "error: wclip needs Node.js 20 or newer (found: $(node --version 2>/dev/null || echo none))" >&2
+if ! command -v node >/dev/null 2>&1 || ! node -e '
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1);
+'; then
+  echo "error: wclip needs Node.js 22.12.0 or newer (found: $(node --version 2>/dev/null || echo none))" >&2
   exit 1
 fi
-if [ ! -d "$DIR/node_modules/defuddle" ] || [ ! -f "$DIR/dist/cli.js" ]; then
+if [ ! -d "$DIR/node_modules/defuddle" ] || [ ! -d "$DIR/node_modules/sanitize-html" ] || [ ! -f "$DIR/dist/cli.js" ]; then
   echo "First run: installing dependencies into $DIR/node_modules and building ..." >&2
-  # Runtime deps only (the dev deps pull in a ~90 MB Bun); the pinned compiler goes to .tools/.
-  (cd "$DIR" && npm ci --omit=dev --no-audit --no-fund >&2 \
-    && npm install --prefix .tools --no-save --no-package-lock --no-audit --no-fund \
-         typescript@7.0.2 @types/node@26.6.5 >&2 \
-    && .tools/node_modules/.bin/tsc -p . --typeRoots .tools/node_modules/@types >&2)
+  # Omit root dev dependencies (including Bun); the compiler has its own checked-in lock.
+  (cd "$DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >&2 \
+    && npm ci --prefix tooling --ignore-scripts --no-audit --no-fund >&2 \
+    && mkdir -p node_modules/@types \
+    && { test -e node_modules/@types/sanitize-html || ln -s ../../tooling/node_modules/@types/sanitize-html node_modules/@types/sanitize-html; } \
+    && tooling/node_modules/.bin/tsc -p . --typeRoots tooling/node_modules/@types >&2)
 fi
 exec node "$DIR/dist/cli.js" "$@"

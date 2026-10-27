@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // wclip — clip web articles to markdown notes with YAML frontmatter.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DEFAULTS, DEFAULT_CONFIG_TEMPLATE, configPath, expandHome, loadConfig, writePrivate, type Config } from './config.js';
@@ -11,7 +11,8 @@ import { buildNote, type Fields } from './note.js';
 import { getArticle } from './pipeline.js';
 import { makeImageFetcher, writeExports } from './render.js';
 import { WclipError, ask, closeInput, die, hostOf, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
-import { configureStatus, isVerbose, startTask, stopStatus } from './status.js';
+import { configureStatus, startTask, stopStatus } from './status.js';
+import { readTextFileLimited, safeWriteFile } from './files.js';
 
 const HELP = `usage: wclip [options] URL
 
@@ -33,7 +34,10 @@ options:
       --stdout             print note instead of writing it
       --browser            fetch with the headless browser right away
       --no-browser         never use the headless browser
-      --html FILE          extract from a saved HTML file (URL is still the source)
+      --html FILE          extract from saved HTML (20 MiB limit; LLM off unless --llm)
+      --llm                explicitly send article text to OpenRouter for this run
+      --no-llm             never send article text to OpenRouter
+      --allow-private      allow local/intranet requests (including page images)
   -v, --verbose            also show sizes, HTTP status and written files
   -q, --quiet              no progress lines; warnings, errors and the saved path only
       --no-progress        no live status line (plain lines instead)
@@ -52,13 +56,14 @@ type Args = {
   url?: string; interactive?: boolean; title?: string; author?: string; published?: string; description?: string;
   tags?: string; read?: boolean; force?: boolean; stdout?: boolean; browser?: boolean; 'no-browser'?: boolean;
   html?: string; verbose?: boolean; quiet?: boolean; 'no-progress'?: boolean;
+  llm?: boolean; 'no-llm'?: boolean; 'allow-private'?: boolean;
 };
 
 async function fetchArticle(url: string, cfg: Config, args: Args): Promise<Article> {
   const task = startTask(args.html !== undefined ? `reading ${basename(args.html)}` : `fetching ${hostOf(url)}`);
   return getArticle(url, cfg, {
     browser: args.browser ? 'always' : args['no-browser'] ? 'never' : undefined,
-    html: args.html !== undefined ? readFileSync(args.html, 'utf8') : undefined,
+    html: args.html !== undefined ? readTextFileLimited(args.html, 20 * 1024 * 1024) : undefined,
     task,
   });
 }
@@ -70,7 +75,13 @@ async function gatherFields(url: string, art: Article, cfg: Config, args: Args):
   const props = cfg.properties?.length ? cfg.properties : DEFAULTS.properties;
   const needTags = props.includes('tags') && args.tags === undefined;
   const needDesc = props.includes('description') && args.description === undefined;
-  const llm = needTags || needDesc ? await llmTagsSummary(title, art.content, cfg) : null;
+  const enabled = !args['no-llm'] && (args.llm || cfg.openrouter.enabled);
+  // Allowing private network access conservatively marks the whole run as sensitive,
+  // including public URLs whose redirects/subresources may have reached an intranet.
+  const consent = args.llm || (args.html === undefined && !cfg.allow_private);
+  if (enabled && !consent && (needTags || needDesc)) info('OpenRouter skipped: saved HTML/private-network runs require --llm.');
+  const llm = enabled && consent && (needTags || needDesc)
+    ? await llmTagsSummary(title, art.content, { ...cfg, openrouter: { ...cfg.openrouter, enabled: true } }) : null;
   return {
     title,
     source: url,
@@ -84,11 +95,14 @@ async function gatherFields(url: string, art: Article, cfg: Config, args: Args):
   };
 }
 
-async function writeNote(dest: string, note: string, cfg: Config): Promise<void> {
+async function writeNote(dest: string, note: string, cfg: Config, overwrite = false): Promise<void> {
   mkdirSync(join(dest, '..'), { recursive: true });
-  writeFileSync(dest, note, 'utf8');
+  try { safeWriteFile(dest, note, overwrite); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
+    throw e;
+  }
   info(`Clipped: ${dest}`);
-  await writeExports(dest, note, cfg, cfg.include_images ? makeImageFetcher(HONEST_UA, cfg.timeout) : null);
+  await writeExports(dest, note, cfg, cfg.include_images ? makeImageFetcher(HONEST_UA, cfg.timeout, cfg.allow_private) : null);
 }
 
 async function interactiveClip(url: string, args: Args, cfg: Config): Promise<void> {
@@ -113,16 +127,18 @@ async function interactiveClip(url: string, args: Args, cfg: Config): Promise<vo
   const note = buildNote(f, art.content, cfg);
   const dir = expandHome(cfg.articles_dir);
   let dest = join(dir, `${sanitizeFilename(f.title)}.md`);
+  let overwrite = false;
   info(`\nWill write: ${dest}`);
   if (existsSync(dest)) {
     const choice = (await ask('File exists. (o)verwrite / (r)ename / (a)bort', 'a')).toLowerCase();
     if (choice.startsWith('r')) {
       for (let i = 2; existsSync(dest); i++) dest = join(dir, `${sanitizeFilename(f.title)}-${i}.md`);
       info(`Renamed to: ${dest}`);
-    } else if (!choice.startsWith('o')) die('aborted');
+    } else if (choice.startsWith('o')) overwrite = true;
+    else die('aborted');
   }
   if ((await ask('Save? (Y/n)', 'y')).toLowerCase().startsWith('n')) die('aborted');
-  await writeNote(dest, note, cfg);
+  await writeNote(dest, note, cfg, overwrite);
 }
 
 async function batchClip(url: string, args: Args, cfg: Config): Promise<void> {
@@ -135,9 +151,10 @@ async function batchClip(url: string, args: Args, cfg: Config): Promise<void> {
   }
   const dest = join(expandHome(cfg.articles_dir), `${sanitizeFilename(f.title)}.md`);
   if (existsSync(dest) && !args.force) die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
-  await writeNote(dest, note, cfg);
+  await writeNote(dest, note, cfg, Boolean(args.force));
   info(`title: ${f.title} | ${art.words} words | ${readingTime(art.words, cfg.reading_wpm)}`);
-  if (!f.tags.length && args.tags === undefined) info('note: tags/description empty (LLM unavailable or failed)');
+  if (!f.tags.length && args.tags === undefined && (cfg.openrouter.enabled || args.llm) && !args['no-llm'])
+    info('note: tags/description empty (OpenRouter skipped, unavailable or failed)');
 }
 
 async function main(): Promise<number> {
@@ -153,11 +170,12 @@ async function main(): Promise<number> {
         stdout: { type: 'boolean' }, browser: { type: 'boolean' }, 'no-browser': { type: 'boolean' },
         html: { type: 'string' }, verbose: { type: 'boolean', short: 'v' }, quiet: { type: 'boolean', short: 'q' },
         'no-progress': { type: 'boolean' }, 'init-config': { type: 'boolean' },
+        llm: { type: 'boolean' }, 'no-llm': { type: 'boolean' }, 'allow-private': { type: 'boolean' },
         version: { type: 'boolean', short: 'V' }, help: { type: 'boolean', short: 'h' },
       },
     });
   } catch (e) {
-    process.stderr.write(`error: ${(e as Error).message}\n\n${HELP}`);
+    info(`error: ${(e as Error).message}\n\n${HELP}`);
     return 2;
   }
   const { values, positionals } = parsed;
@@ -166,6 +184,7 @@ async function main(): Promise<number> {
   if (positionals.length > 1) die(`expected one URL, got ${positionals.length}`);
   const args: Args = { ...values, url: positionals[0] };
   if (args.browser && args['no-browser']) die('--browser and --no-browser exclude each other');
+  if (args.llm && args['no-llm']) die('--llm and --no-llm exclude each other');
 
   if (values['init-config']) {
     const p = configPath();
@@ -174,7 +193,8 @@ async function main(): Promise<number> {
     info(`Wrote default config: ${p}`);
     return 0;
   }
-  const cfg = await loadConfig();
+  const loaded = await loadConfig();
+  const cfg: Config = { ...loaded, allow_private: Boolean(args['allow-private'] || loaded.allow_private) };
   configureStatus({
     verbose: Boolean(args.verbose),
     quiet: Boolean(args.quiet),
@@ -190,7 +210,7 @@ process.on('SIGINT', () => { stopStatus(); process.stderr.write('\naborted\n'); 
 // exitCode, not exit(): exit() can cut off a large note still being piped from --stdout.
 main().finally(closeInput).then(code => { process.exitCode = code; }, e => {
   stopStatus();
-  if (e instanceof WclipError) process.stderr.write(`error: ${e.message}\n`);
-  else process.stderr.write(`error: ${(e as Error).stack ?? e}\n`);
+  if (e instanceof WclipError) info(`error: ${e.message}`);
+  else info(`error: ${(e as Error).message ?? e}`);
   process.exitCode = 1;
 });

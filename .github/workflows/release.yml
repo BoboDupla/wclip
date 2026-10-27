@@ -1,11 +1,6 @@
-# Builds and tests wclip. On a v* tag it also publishes the binaries and bundles as a
-# GitHub Release; on pull requests and manual runs it stops after the tests.
-#
-# Releasing: bump the version in package.json and src/fetch.ts, merge to main, then
-#   git tag v0.4.1 && git push origin v0.4.1
-# The tag must equal both versions (checked below). A hyphen in the tag (v0.5.0-rc1) makes the
-# release a pre-release. `npm version <x.y.z> --no-git-tag-version` bumps package.json and the
-# lockfile's two root version fields together; src/fetch.ts is the one file to edit by hand.
+# PRs and manual runs build/test with read-only permissions. Only v* tag pushes publish.
+# Bump package.json, both package-lock root versions, and src/fetch.ts before tagging.
+# A hyphen in the version (for example v0.5.0-rc1) publishes a prerelease.
 name: Release
 
 on:
@@ -17,37 +12,82 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     permissions:
-      contents: write # gh release create
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tooling/package-lock.json
 
-      - name: Check the tag matches the version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Set scratch directory
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Check source, manifest, lockfile and tag versions
         run: |
-          v=${GITHUB_REF_NAME#v}
-          pkg=$(node -p 'require("./package.json").version')
-          src=$(sed -n "s/^export const VERSION = '\(.*\)';/\1/p" src/fetch.ts)
-          if [ "$v" != "$pkg" ] || [ "$v" != "$src" ]; then
-            echo "::error::tag $GITHUB_REF_NAME, package.json $pkg, src/fetch.ts $src must all match"
-            exit 1
-          fi
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          const src = readFileSync('src/fetch.ts', 'utf8').match(/^export const VERSION = '([^']+)';$/m)?.[1];
+          const versions = [pkg.version, lock.version, lock.packages?.['']?.version, src];
+          if (process.env.GITHUB_REF_TYPE === 'tag') {
+            const tag = process.env.GITHUB_REF_NAME;
+            if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(tag ?? '')) {
+              throw new Error(`invalid release tag: ${tag}`);
+            }
+            versions.push(tag.slice(1));
+          }
+          if (versions.some(v => typeof v !== 'string' || v !== pkg.version)) {
+            throw new Error(`package.json, package-lock.json roots, src/fetch.ts and release tag must match: ${JSON.stringify(versions)}`);
+          }
+          NODE
 
-      - run: npm ci
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Audit production and bootstrap tooling dependencies
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm audit --prefix tooling --audit-level=high
+
+      # Bun's npm lifecycle installer is deliberately not run. Use the native binary
+      # whose package tarball/integrity is already pinned by the root npm lockfile.
+      - name: Expose the lockfile-installed Bun binary
+        run: |
+          test -x node_modules/@oven/bun-linux-x64/bin/bun
+          # npm run puts node_modules/.bin first; replace Bun's uninitialized
+          # lifecycle stub, rather than adding a native binary later on PATH.
+          ln -sfn ../@oven/bun-linux-x64/bin/bun node_modules/.bin/bun
+          node_modules/.bin/bun --version
+
       - run: npm test
+        env:
+          WCLIP_CHROMIUM: /usr/bin/google-chrome
+      - name: Test first-run source bootstrap
+        run: sh test/bootstrap-smoke.sh
       - run: npm run build:bin
       - run: npm run build:js
 
-      # The runner image has Google Chrome, which covers the headless browser fallback.
-      - name: Smoke-test the x64 binaries
+      # Chromium is opt-in; the loopback-only smoke fixture explicitly allows private IPs.
+      - name: Smoke-test the x64 binaries and Node bundle
         env:
           WCLIP_CHROMIUM: /usr/bin/google-chrome
         run: |
@@ -57,15 +97,86 @@ jobs:
 
       - name: Checksums
         working-directory: build
-        run: sha256sum wclip-* | tee SHA256SUMS
+        run: |
+          sha256sum wclip-linux-x64 wclip-linux-x64-baseline wclip-linux-arm64 \
+            wclip-node.js wclip-bun.js > SHA256SUMS
+          sha256sum --strict --check SHA256SUMS
 
+      - name: Upload tested release files
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wclip-release
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          path: |
+            build/wclip-linux-x64
+            build/wclip-linux-x64-baseline
+            build/wclip-linux-arm64
+            build/wclip-node.js
+            build/wclip-bun.js
+            build/SHA256SUMS
+
+  # Private repositories require GitHub Enterprise Cloud for attestations. This
+  # personal private repo cannot establish that entitlement, so skip rather than
+  # break releases; public repos attest in an isolated job with no dependency code.
+  attest:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: build
+          merge-multiple: true
+      - name: Verify downloaded release checksums
+        working-directory: build
+        run: sha256sum --strict --check SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            build/wclip-linux-x64
+            build/wclip-linux-x64-baseline
+            build/wclip-linux-arm64
+            build/wclip-node.js
+            build/wclip-bun.js
+
+  publish:
+    needs: [build, attest]
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.attest.result == 'success' || needs.attest.result == 'skipped') &&
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # Do not check out or execute repository/dependency code in this job.
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: build
+          merge-multiple: true
+      - name: Verify downloaded release checksums
+        working-directory: build
+        run: sha256sum --strict --check SHA256SUMS
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: build
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          pre=; case "$GITHUB_REF_NAME" in *-*) pre=--prerelease;; esac
-          cd build && gh release create "$GITHUB_REF_NAME" $pre --verify-tag \
+          pre=()
+          case "$GITHUB_REF_NAME" in *-*) pre=(--prerelease);; esac
+          gh release create "$GITHUB_REF_NAME" "${pre[@]}" --verify-tag \
             --title "wclip $GITHUB_REF_NAME" --generate-notes \
             wclip-linux-x64 wclip-linux-x64-baseline wclip-linux-arm64 \
             wclip-node.js wclip-bun.js SHA256SUMS

@@ -21,6 +21,7 @@ export async function openrouterComplete(cfg: Config, text: string): Promise<str
   try {
     r = await fetch(OPENROUTER_URL, {
       method: 'POST',
+      redirect: 'error', // never forward an authenticated request through a redirect
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: orc.model || 'z-ai/glm-5.3-flash', messages: [{ role: 'user', content: text }], temperature: 0.3 }),
       signal: AbortSignal.timeout((Number(orc.timeout) || 60) * 1000),
@@ -29,10 +30,23 @@ export async function openrouterComplete(cfg: Config, text: string): Promise<str
     const err = e as Error & { cause?: { message?: string } };
     throw new Error(`OpenRouter request failed: ${err.cause?.message ?? err.message}`);
   }
-  if (!r.ok) throw new Error(`OpenRouter HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
-  const data = await r.json() as { choices?: { message?: { content?: string } }[] };
+  if (!r.ok) { await r.body?.cancel(); throw new Error(`OpenRouter HTTP ${r.status}`); }
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  if (!r.body) throw new Error('OpenRouter returned no body');
+  const reader = r.body.getReader();
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 2 * 1024 * 1024) { await reader.cancel(); throw new Error('OpenRouter response exceeds 2 MiB'); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const data = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { choices?: { message?: { content?: string } }[] };
   const out = data.choices?.[0]?.message?.content;
-  if (typeof out !== 'string') throw new Error(`unexpected OpenRouter response shape: ${JSON.stringify(data).slice(0, 300)}`);
+  if (typeof out !== 'string') throw new Error('unexpected OpenRouter response shape');
   return out;
 }
 
@@ -52,10 +66,11 @@ export function parseTagsSummary(raw: string): { tags: string[]; summary: string
 }
 
 export async function llmTagsSummary(title: string, content: string, cfg: Config): Promise<{ tags: string[]; summary: string } | null> {
-  const task = startTask(`tags + summary via ${(cfg.openrouter.model || 'OpenRouter').split('/').pop()}`);
+  if (!cfg.openrouter.enabled) return null;
+  const task = startTask(`tags + summary via OpenRouter/${cfg.openrouter.model}`);
   let raw: string;
   try {
-    raw = await openrouterComplete(cfg, prompt(title, content.slice(0, 15000))); // cap: keep it cheap
+    raw = await openrouterComplete(cfg, prompt(title.slice(0, 1000), content.slice(0, 15000))); // cap: keep it cheap
   } catch (e) {
     task.fail();
     warn(`OpenRouter call failed — tags and description left empty. (${(e as Error).message})`);

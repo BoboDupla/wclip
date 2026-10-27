@@ -1,10 +1,11 @@
 // Config: articles_dir and friends, plus `browser` and `boilerplate`. Lives in
 // ~/.config/wclip/config.yaml, or wherever $WCLIP_CONFIG points.
-import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, writeSync, closeSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { ask, die, envVar, info, warn } from './util.js';
+import { readTextFileLimited, safeWriteFile } from './files.js';
 
 export interface Config {
   articles_dir: string;
@@ -14,7 +15,8 @@ export interface Config {
   make_epub: boolean;
   timeout: number;
   progress: boolean;
-  openrouter: { api_key: string; model: string; timeout: number };
+  allow_private: boolean;
+  openrouter: { enabled: boolean; api_key: string; model: string; timeout: number };
   properties: string[];
   custom_properties: Record<string, unknown>;
   browser: { mode: 'auto' | 'never'; executable: string; min_words: number; timeout: number };
@@ -37,10 +39,11 @@ export const DEFAULTS: Config = {
   make_epub: true,
   timeout: 30,
   progress: true,
-  openrouter: { api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60 },
+  allow_private: false,
+  openrouter: { enabled: false, api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60 },
   properties: ['title', 'source', 'author', 'published', 'created', 'description', 'tags', 'read', 'reading time'],
   custom_properties: {},
-  browser: { mode: 'auto', executable: '', min_words: 50, timeout: 45 },
+  browser: { mode: 'never', executable: '', min_words: 50, timeout: 45 },
   boilerplate: DEFAULT_BOILERPLATE,
 };
 
@@ -61,12 +64,64 @@ function isObj(v: unknown): v is Record<string, unknown> {
 export function deepMerge<T>(base: T, override: Record<string, unknown>): T {
   const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
   for (const [k, v] of Object.entries(override)) {
+    if (['__proto__', 'constructor', 'prototype'].includes(k)) continue;
     out[k] = isObj(v) && isObj(out[k]) ? deepMerge(out[k], v) : v;
   }
   return out as T;
 }
 
-const q = (s: string) => JSON.stringify(s);
+const q = (s: string) => JSON.stringify(s).replace(/[\u0085\u2028\u2029]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
+function rejectUnsafeKeys(value: unknown, path = 'config', depth = 0): void {
+  if (depth > 30) die('config is nested too deeply');
+  if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (['__proto__', 'constructor', 'prototype'].includes(k)) die(`unsafe key in ${path}`);
+      rejectUnsafeKeys(v, `${path}.${k}`, depth + 1);
+    }
+  }
+}
+
+export function validateConfig(value: unknown): Config {
+  rejectUnsafeKeys(value);
+  if (!isObj(value)) die('config must be a mapping');
+  const c = value;
+  const fail = (name: string, expected: string): never => die(`invalid config ${name}: expected ${expected}`);
+  const string = (v: unknown, name: string) => { if (typeof v !== 'string') fail(name, 'a string'); };
+  const number = (v: unknown, name: string, min: number, max: number) => {
+    if (typeof v !== 'number' || !Number.isFinite(v) || !Number.isInteger(v) || v < min || v > max)
+      fail(name, `an integer from ${min} to ${max}`);
+  };
+  const strings = (v: unknown, name: string) => {
+    if (!Array.isArray(v) || !v.every(x => typeof x === 'string')) fail(name, 'a list of strings');
+  };
+  string(c.articles_dir, 'articles_dir');
+  if (!(c.articles_dir as string).trim()) fail('articles_dir', 'a non-empty path');
+  number(c.reading_wpm, 'reading_wpm', 1, 10000);
+  number(c.timeout, 'timeout', 1, 600);
+  for (const k of ['include_images', 'make_html', 'make_epub', 'progress', 'allow_private']) {
+    if (typeof c[k] !== 'boolean') fail(k, 'true or false');
+  }
+  if (!isObj(c.openrouter)) fail('openrouter', 'a mapping');
+  const orc = c.openrouter as Record<string, unknown>;
+  if (typeof orc.enabled !== 'boolean') fail('openrouter.enabled', 'true or false');
+  string(orc.api_key, 'openrouter.api_key'); string(orc.model, 'openrouter.model');
+  number(orc.timeout, 'openrouter.timeout', 1, 600);
+  if (!isObj(c.browser)) fail('browser', 'a mapping');
+  const b = c.browser as Record<string, unknown>;
+  if (b.mode !== 'never' && b.mode !== 'auto') fail('browser.mode', 'never or auto');
+  string(b.executable, 'browser.executable');
+  number(b.timeout, 'browser.timeout', 1, 600); number(b.min_words, 'browser.min_words', 1, 100000);
+  strings(c.properties, 'properties');
+  if (!isObj(c.custom_properties)) fail('custom_properties', 'a mapping');
+  for (const v of Object.values(c.custom_properties as Record<string, unknown>)) {
+    const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean'].includes(typeof x);
+    if (!(Array.isArray(v) ? v.every(scalar) : scalar(v))) fail('custom_properties', 'scalar values or lists of scalars');
+  }
+  if (!isObj(c.boilerplate)) fail('boilerplate', 'a mapping of hosts to selector lists');
+  for (const [host, sels] of Object.entries(c.boilerplate as Record<string, unknown>)) strings(sels, `boilerplate.${host}`);
+  return c as unknown as Config;
+}
 
 export function renderConfig(c: { articles_dir: string; reading_wpm: number; api_key: string; model: string }): string {
   const bp = Object.entries(DEFAULT_BOILERPLATE)
@@ -74,7 +129,7 @@ export function renderConfig(c: { articles_dir: string; reading_wpm: number; api
     .join('\n');
   return `# wclip configuration
 # Where clipped articles are saved:
-articles_dir: ${c.articles_dir}
+articles_dir: ${q(c.articles_dir)}
 
 # Words per minute used for "reading time":
 reading_wpm: ${c.reading_wpm}
@@ -95,9 +150,14 @@ timeout: 30
 # Only drawn when stderr is a terminal; --no-progress and --quiet override it.
 progress: true
 
-# OpenRouter: generates tags + summary. Leave api_key empty to use
-# the OPENROUTER_API_KEY environment variable.
+# Allow local/intranet destinations only when you intend to clip them.
+allow_private: false
+
+# OpenRouter receives up to 15000 characters of the article when explicitly enabled.
+# An API key alone does not enable it. Prefer OPENROUTER_API_KEY in the environment.
+# Saved HTML/private content still requires --llm for that run.
 openrouter:
+  enabled: false
   api_key: ${q(c.api_key)}
   model: ${q(c.model)}
   timeout: 60
@@ -112,12 +172,12 @@ ${DEFAULTS.properties.map(p => `  - ${p}`).join('\n')}
 #   type: article
 custom_properties: {}
 
-# Headless browser (Playwright + Chromium), used only as a last resort when
-# the plain fetch gives nothing or a stub. mode: auto | never.
+# Headless browser executes page JavaScript. Off by default: use --browser
+# or explicitly opt into automatic fallback with mode: auto. mode: auto | never.
 # executable: path to chromium/chrome; empty = Playwright's own browser,
 # then $WCLIP_CHROMIUM, then chromium / google-chrome on $PATH.
 browser:
-  mode: auto
+  mode: never
   executable: ""
   min_words: 50   # fewer extracted words than this counts as a stub
   timeout: 45
@@ -138,16 +198,17 @@ export const DEFAULT_CONFIG_TEMPLATE = renderConfig({
 
 // Write with 0600 perms: the file may hold an API key.
 export function writePrivate(p: string, text: string): void {
-  mkdirSync(dirname(p), { recursive: true });
-  const fd = openSync(p, 'w', 0o600);
-  try { writeSync(fd, text); } finally { closeSync(fd); }
-  chmodSync(p, 0o600);
+  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
+  safeWriteFile(p, text, false, 0o600);
 }
 
 async function interactiveSetup(p: string): Promise<Config> {
   info("No config found — let's set up wclip.\n");
   const articles_dir = await ask('Where should clipped articles be saved?', join(homedir(), 'articles'));
-  const api_key = await ask('OpenRouter API key (Enter to skip; you can also set OPENROUTER_API_KEY env var)', '');
+  // Never echo secrets into terminal scrollback. Keys can be provided in the environment
+  // or edited into the private config; no secret is accepted on the command line.
+  const api_key = '';
+  info('OpenRouter is off by default. To use it, set OPENROUTER_API_KEY and pass --llm.');
   const model = await ask('OpenRouter model', DEFAULTS.openrouter.model);
   const wpm = await ask('Reading speed (words per minute)', String(DEFAULTS.reading_wpm));
   const reading_wpm = /^\d+$/.test(wpm) ? Number(wpm) : DEFAULTS.reading_wpm;
@@ -159,7 +220,7 @@ async function interactiveSetup(p: string): Promise<Config> {
   } catch (e) {
     warn(`could not write config ${p}: ${(e as Error).message} (continuing with these settings for this run)`);
   }
-  return cfg;
+  return validateConfig(cfg);
 }
 
 export async function loadConfig(): Promise<Config> {
@@ -176,10 +237,11 @@ export async function loadConfig(): Promise<Config> {
   }
   let data: unknown;
   try {
-    data = parseYaml(readFileSync(p, 'utf8')) ?? {};
+    data = parseYaml(readTextFileLimited(p, 1024 * 1024), { prettyErrors: false }) ?? {};
   } catch (e) {
-    die(`config ${p} is not valid YAML: ${(e as Error).message}`);
+    die(`could not read config ${p}: invalid YAML or unreadable/oversized input`);
   }
   if (!isObj(data)) die(`config ${p} is not a YAML mapping`);
-  return deepMerge(DEFAULTS, data);
+  rejectUnsafeKeys(data);
+  return validateConfig(deepMerge(DEFAULTS, data));
 }

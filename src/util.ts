@@ -11,18 +11,22 @@ export function envVar(name: string): string | undefined {
 export function die(msg: string): never {
   throw new WclipError(msg);
 }
+// Keep intended line breaks/tabs in diagnostics, but strip terminal controls and OSC/CSI introducers.
+export function terminalText(msg: string): string {
+  return String(msg).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
+}
 export function warn(msg: string): void {
-  process.stderr.write(`warning: ${msg}\n`);
+  process.stderr.write(`warning: ${terminalText(msg)}\n`);
 }
 export function info(msg: string): void {
-  process.stderr.write(`${msg}\n`);
+  process.stderr.write(`${terminalText(msg)}\n`);
 }
 
 // One shared line reader: a fresh readline per question would swallow the rest of piped input.
 let lines: AsyncIterator<string> | null = null;
 
 export async function ask(label: string, def = ''): Promise<string> {
-  process.stderr.write(`${label}${def ? ` [${def}]` : ''}: `);
+  process.stderr.write(terminalText(`${label}${def ? ` [${def}]` : ''}: `));
   lines ??= createInterface({ input: process.stdin, terminal: false })[Symbol.asyncIterator]();
   const next = await lines.next();
   if (next.done) process.stderr.write('\n'); // EOF: take the default
@@ -41,7 +45,15 @@ export function sanitizeFilename(title: string): string {
   let t = title.toLowerCase();
   t = t.replace(/[^\p{L}\p{N}_\s-]/gu, '');
   t = t.replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '');
-  return t.slice(0, 150).replace(/^-+|-+$/g, '') || 'untitled';
+  // Leave room for collision suffixes and extensions under Linux NAME_MAX (255 bytes).
+  let out = '';
+  let bytes = 0;
+  for (const c of t) {
+    const n = Buffer.byteLength(c);
+    if (bytes + n > 200) break;
+    out += c; bytes += n;
+  }
+  return out.replace(/^-+|-+$/g, '') || 'untitled';
 }
 
 export function wordCount(text: string): number {

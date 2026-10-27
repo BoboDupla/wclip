@@ -1,7 +1,7 @@
 // Progress reporting. Everything goes to stderr (so --stdout stays byte-clean), and the live
 // line is drawn only when stderr is a terminal: pipes, logs and CI get plain lines instead.
 // Frames are ASCII on purpose; the terminal may be xterm.js with a font that lacks braille.
-import { envVar } from './util.js';
+import { envVar, terminalText } from './util.js';
 
 const CLEAR = '\r\x1b[2K';
 const FRAMES = ['|', '/', '-', '\\'];
@@ -33,7 +33,7 @@ export const isQuiet = (): boolean => quiet;
 
 // Plain info line that --quiet hides; the result lines use info() directly.
 export function note(msg: string): void {
-  if (!quiet) process.stderr.write(`${msg}\n`);
+  if (!quiet) process.stderr.write(`${terminalText(msg)}\n`);
 }
 
 export function formatBytes(n: number): string {
@@ -101,6 +101,7 @@ class LiveTask implements Task {
   }
 
   setDetail(detail: string): void {
+    detail = terminalText(detail).replace(/[\r\n\t]/g, ' ');
     this.detail = detail;
     if (animate) this.paint();
     else process.stderr.write(`  ${detail}\n`);
@@ -114,7 +115,7 @@ class LiveTask implements Task {
   done(msg?: string): void {
     if (this.finished) return;
     this.stop();
-    if (msg) process.stderr.write(`ok ${msg} in ${formatDuration(Date.now() - this.start)}\n`);
+    if (msg) process.stderr.write(`ok ${terminalText(msg)} in ${formatDuration(Date.now() - this.start)}\n`);
   }
 
   fail(): void {
@@ -131,7 +132,7 @@ class LiveTask implements Task {
 
 export function startTask(label: string): Task {
   if (quiet || !process.stderr.writable) return NOOP;
-  const t = new LiveTask(label);
+  const t = new LiveTask(terminalText(label).replace(/[\r\n\t]/g, ' '));
   active = t;
   return t;
 }

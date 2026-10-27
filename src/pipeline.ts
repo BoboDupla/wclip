@@ -40,11 +40,11 @@ export async function getArticle(url: string, cfg: Config, mode: FetchMode = {})
   let page: Page | null = null;
   let art: Article | null = null;
   if (browserMode !== 'always') {
-    page = await fetchPage(url, HONEST_UA, cfg.timeout);
+    page = await fetchPage(url, HONEST_UA, cfg.timeout, {}, { allowPrivate: cfg.allow_private });
     art = await run(page);
     if (!page || page.html.length < MIN_PLAUSIBLE_HTML || !art?.content) {
       mode.task?.setDetail('retrying with a browser user agent');
-      const retry = await fetchPage(url, BROWSER_UA, cfg.timeout);
+      const retry = await fetchPage(url, BROWSER_UA, cfg.timeout, {}, { allowPrivate: cfg.allow_private });
       // Only take the retry if it is bigger: decoys served to browser UAs are small (tante.cc: 1.1 KB).
       if (retry && retry.html.length > (page?.html.length ?? 0)) {
         const a = await run(retry);
@@ -56,7 +56,7 @@ export async function getArticle(url: string, cfg: Config, mode: FetchMode = {})
   const stub = !art?.content || art.words < minWords;
   if (browserMode === 'always' || (browserMode === 'auto' && stub)) {
     if (browserMode === 'auto') mode.task?.setDetail(`only ${art?.words ?? 0} words; starting a headless browser`);
-    const bpage = await (mode.fetchBrowser ?? fetchWithBrowser)(url, cfg.browser.executable, cfg.browser.timeout);
+    const bpage = await (mode.fetchBrowser ?? fetchWithBrowser)(url, cfg.browser.executable, cfg.browser.timeout, { allowPrivate: cfg.allow_private });
     const a = await run(bpage);
     if (a?.content && (browserMode === 'always' || a.words > (art?.words ?? 0))) [page, art] = [bpage, a];
   }
@@ -68,7 +68,7 @@ export async function getArticle(url: string, cfg: Config, mode: FetchMode = {})
   if (!art?.content) {
     mode.task?.fail();
     die('could not extract readable content from that page.\n' +
-        'Hint: if it needs JavaScript, check the browser fallback is enabled (browser.mode: auto) and Chromium is installed;\n' +
+        'Hint: JavaScript is off by default; use --browser with sandbox-capable Chromium installed;\n' +
         'or save the page from your browser and run: wclip --html saved.html URL');
   }
   if (art.words < minWords) warn(`only ${art.words} words extracted; the page may need JavaScript or be paywalled`);
