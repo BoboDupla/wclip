@@ -30,9 +30,10 @@ function fakeBrowser(t, options = {}) {
       if (options.onPage) await options.onPage(state, makeRequest, makeRoute);
     },
   };
-  function makeRequest(url, navigation = false) {
+  function makeRequest(url, navigation = false, type = 'document') {
     return {
       url: () => url, method: () => 'GET', postDataBuffer: () => null,
+      resourceType: () => type,
       allHeaders: async () => ({ 'user-agent': 'HeadlessChrome/test' }),
       isNavigationRequest: () => navigation, frame: () => page,
     };
@@ -82,6 +83,8 @@ test('browser sandbox, isolated context and blocked WebSockets are explicit', { 
   assert.equal(state.launches.length, 1);
   assert.equal(state.launches[0].chromiumSandbox, true);
   assert.equal(state.launches[0].headless, true);
+  assert.ok(state.launches[0].args.includes('--force-webrtc-ip-handling-policy=disable_non_proxied_udp'),
+    'WebRTC UDP paths bypass route interception and must be disabled');
   assert.deepEqual(state.contexts, [{ acceptDownloads: false, serviceWorkers: 'block' }]);
   assert.equal(state.fetches[0].maxRedirects, 0, 'Playwright automatic redirects must be disabled');
   assert.equal(state.fetches[0].headers['user-agent'], 'HeadlessChrome/test');
@@ -108,6 +111,25 @@ test('browser blocks private subresources and private resource redirects before 
   assert.ok(await fetchWithBrowser('https://article.example/', '', 1));
   assert.deepEqual(state.fetches.map(x => x.url), ['https://article.example/', publicResource]);
   assert.deepEqual(state.aborted, [privateUrl, publicResource]);
+});
+
+test('browser refuses media, font and manifest subresources before fetching them', { skip: !playwright }, async t => {
+  const media = 'https://assets.example/movie.mp4';
+  const font = 'https://assets.example/font.woff2';
+  const manifest = 'https://assets.example/app.webmanifest';
+  const image = 'https://assets.example/pic.jpg';
+  const state = fakeBrowser(t, {
+    onPage: async (state, request, route) => {
+      await state.routeHandler(route(media), request(media, false, 'media'));
+      await state.routeHandler(route(font), request(font, false, 'font'));
+      await state.routeHandler(route(manifest), request(manifest, false, 'manifest'));
+      await state.routeHandler(route(image), request(image, false, 'image'));
+    },
+  });
+  assert.ok(await fetchWithBrowser('https://article.example/', '', 1));
+  // route.fetch buffers whole bodies in this process, so unbounded streams never start.
+  assert.deepEqual(state.fetches.map(x => x.url), ['https://article.example/', image]);
+  assert.deepEqual(state.aborted, [media, font, manifest]);
 });
 
 test('browser document redirect is validated and navigated explicitly; final URL survives', { skip: !playwright }, async t => {

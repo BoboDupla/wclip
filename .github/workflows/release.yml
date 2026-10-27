@@ -32,10 +32,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            tooling/package-lock.json
+          # No npm cache here on purpose: this job runs on a tag and its output is
+          # published, so a poisoned cache could substitute dependencies into a release.
 
       - name: Set scratch directory
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
@@ -65,7 +63,7 @@ jobs:
 
       - name: Audit production and bootstrap tooling dependencies
         run: |
-          npm audit --omit=dev --audit-level=high
+          npm audit --omit=dev --audit-level=moderate
           npm audit --prefix tooling --audit-level=high
 
       # Bun's npm lifecycle installer is deliberately not run. Use the native binary

@@ -10,13 +10,36 @@ if ! command -v node >/dev/null 2>&1 || ! node -e '
   echo "error: wclip needs Node.js 22.12.0 or newer (found: $(node --version 2>/dev/null || echo none))" >&2
   exit 1
 fi
-if [ ! -d "$DIR/node_modules/defuddle" ] || [ ! -d "$DIR/node_modules/sanitize-html" ] || [ ! -f "$DIR/dist/cli.js" ]; then
-  echo "First run: installing dependencies into $DIR/node_modules and building ..." >&2
+# Hash the sources, manifests and lockfiles so a `git pull` rebuilds instead of silently
+# running the previous compiled code. The stamp is written only after a successful build.
+fingerprint() {
+  node -e '
+    const { createHash } = require("node:crypto");
+    const { readdirSync, readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const dir = process.argv[1];
+    const h = createHash("sha256");
+    for (const f of ["package.json", "package-lock.json", "tooling/package-lock.json"]) {
+      try { h.update(readFileSync(join(dir, f))); } catch { h.update(f); }
+    }
+    for (const f of readdirSync(join(dir, "src")).sort()) {
+      h.update(f); h.update(readFileSync(join(dir, "src", f)));
+    }
+    process.stdout.write(h.digest("hex"));
+  ' "$DIR"
+}
+WANT=$(fingerprint)
+STAMP=
+if [ -f "$DIR/dist/.build-stamp" ]; then STAMP=$(cat "$DIR/dist/.build-stamp"); fi
+if [ ! -d "$DIR/node_modules/defuddle" ] || [ ! -d "$DIR/node_modules/sanitize-html" ] \
+   || [ ! -f "$DIR/dist/cli.js" ] || [ "$STAMP" != "$WANT" ]; then
+  echo "First run or changed sources: installing dependencies into $DIR/node_modules and building ..." >&2
   # Omit root dev dependencies (including Bun); the compiler has its own checked-in lock.
   (cd "$DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >&2 \
     && npm ci --prefix tooling --ignore-scripts --no-audit --no-fund >&2 \
     && mkdir -p node_modules/@types \
     && { test -e node_modules/@types/sanitize-html || ln -s ../../tooling/node_modules/@types/sanitize-html node_modules/@types/sanitize-html; } \
-    && tooling/node_modules/.bin/tsc -p . --typeRoots tooling/node_modules/@types >&2)
+    && tooling/node_modules/.bin/tsc -p . --typeRoots tooling/node_modules/@types >&2 \
+    && printf '%s\n' "$WANT" > "$DIR/dist/.build-stamp")
 fi
 exec node "$DIR/dist/cli.js" "$@"

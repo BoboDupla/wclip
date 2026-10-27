@@ -17,7 +17,11 @@ export interface FetchMode {
 }
 
 export async function getArticle(url: string, cfg: Config, mode: FetchMode = {}): Promise<Article> {
-  const opts: ExtractOptions = { boilerplate: cfg.boilerplate, includeImages: cfg.include_images, ...mode.extractOptions };
+  const opts: ExtractOptions = {
+    boilerplate: cfg.boilerplate, includeImages: cfg.include_images,
+    offline: mode.html !== undefined, // --html never touches the network
+    ...mode.extractOptions,
+  };
   const run = async (p: Page | null) => {
     if (!p) return null;
     // Extraction is synchronous and can take seconds on big pages, so say so before it starts.

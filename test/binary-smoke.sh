@@ -8,8 +8,10 @@ TMPROOT=${TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/wclip}
 mkdir -p "$TMPROOT"
 T=$(mktemp -d "$TMPROOT/wclip-binary.XXXXXX")
 SRV=
+NSRV=
 cleanup() {
   if [ -n "$SRV" ]; then kill "$SRV" 2>/dev/null || true; wait "$SRV" 2>/dev/null || true; fi
+  if [ -n "$NSRV" ]; then kill "$NSRV" 2>/dev/null || true; wait "$NSRV" 2>/dev/null || true; fi
   rm -rf "$T"
 }
 trap cleanup EXIT
@@ -37,6 +39,48 @@ fi
 for f in html/how-i-fell-in-love-with-calendartxt.html epub/how-i-fell-in-love-with-calendartxt.epub; do
   if [ -s "$T/articles/$f" ]; then echo "ok   $f"; else echo "FAIL $f"; fail=1; fi
 done
+# The released binaries embed Bun, whose node:http is a reimplementation of Node's and
+# has diverged on custom DNS lookup behaviour before. Prove on the shipped artifact that
+# a non-public target is refused without --allow-private, not just in the Node test run.
+mkdir "$T/net"
+printf '<!doctype html><html><body><p>loopback fixture</p></body></html>\n' > "$T/net/index.html"
+python3 - "$T/net" "$T/netport" > "$T/netserver.log" 2>&1 <<'PY' &
+import functools, http.server, pathlib, sys
+server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]))
+pathlib.Path(sys.argv[2]).write_text(str(server.server_port))
+server.serve_forever()
+PY
+NSRV=$!
+n=0
+while [ ! -s "$T/netport" ] && [ "$n" -lt 100 ]; do
+  kill -0 "$NSRV" 2>/dev/null || break
+  sleep 0.1; n=$((n + 1))
+done
+if [ ! -s "$T/netport" ]; then
+  echo "FAIL ssrf fixture server"; cat "$T/netserver.log" >&2; fail=1
+else
+  NPORT=$(cat "$T/netport")
+  for target in "http://127.0.0.1:$NPORT/" "http://localhost:$NPORT/" \
+                "http://2130706433:$NPORT/" "http://169.254.169.254/latest/meta-data/"; do
+    if "$BIN" "$target" --stdout -g x -d y > "$T/blocked.out" 2> "$T/blocked.err"; then
+      echo "FAIL ssrf: binary fetched $target without --allow-private"; fail=1
+    elif grep -q 'blocked non-public' "$T/blocked.err"; then
+      echo "ok   ssrf blocks $target"
+    else
+      echo "FAIL ssrf: $target (no policy error)"; cat "$T/blocked.err" >&2; fail=1
+    fi
+  done
+  # The same fixture must still work when the user explicitly opts in.
+  if "$BIN" "http://127.0.0.1:$NPORT/" --allow-private --stdout -g x -d y > "$T/allowed.out" 2> "$T/allowed.err" \
+     && grep -q 'loopback fixture' "$T/allowed.out"; then
+    echo "ok   ssrf --allow-private still reaches the fixture"
+  else
+    echo "FAIL ssrf: --allow-private broke intentional local clipping"; cat "$T/allowed.err" >&2; fail=1
+  fi
+fi
+kill "$NSRV" 2>/dev/null || true
+wait "$NSRV" 2>/dev/null || true
+
 # Headless browser inside the binary, against a loopback page rendered only by JS.
 if [ -n "${WCLIP_CHROMIUM:-}" ] || command -v chromium >/dev/null; then
   mkdir "$T/www"

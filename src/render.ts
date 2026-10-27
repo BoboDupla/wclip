@@ -13,10 +13,12 @@ import { formatBytes, isVerbose, note as noteLine, startTask, type Task } from '
 import { today, warn } from './util.js';
 import { get } from './fetch.js';
 import { safeWriteFile } from './files.js';
-import { MAX_IMAGE_BYTES, protectMath, rasterImageType, safeUrl, sanitizeBody } from './sanitize.js';
+import { ALLOWED_HTML_TAGS, MAX_IMAGE_BYTES, TAGS, protectMath, rasterImageType, safeUrl, sanitizeBody } from './sanitize.js';
 
+// XML 1.0 forbids most C0 controls even escaped, and they come from untrusted metadata.
+const XML_BAD = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g;
 const esc = (s: string, quote = false) => {
-  s = String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  s = String(s).replace(XML_BAD, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return quote ? s.replace(/"/g, '&quot;').replace(/'/g, '&#x27;') : s;
 };
 
@@ -36,12 +38,14 @@ export function parseNote(note: string): { fm: Record<string, unknown>; body: st
 // for an opaque placeholder before Markdown runs and rendered to MathML afterwards. Code spans and
 // fenced blocks are left alone, and a single $ only opens math when a non-space character follows
 // it and a non-space character precedes the closing $ (so "$5 and $10" stays text).
-// Tag-like tokens that are not HTML (<history_text>) come from prompt templates quoted in articles.
-// Browsers hide them and EPUB's XHTML rejects them, so they are escaped.
-const HTML_TAGS = new Set(`a abbr address article aside b bdi bdo blockquote br caption center cite code
+// Tag-like tokens that are not HTML (<history_text>) come from prompt templates quoted in
+// articles. Browsers hide them and EPUB's XHTML rejects them, so they are escaped. The
+// sanitiser's own allowlist is included, so MathML inner elements (<mrow>, <mi>) survive
+// to the MathML branch instead of being printed as literal text.
+const HTML_TAGS = new Set([...TAGS, ...ALLOWED_HTML_TAGS, `a abbr address article aside b bdi bdo blockquote br caption center cite code
 col colgroup dd del details dfn div dl dt em figcaption figure font footer h1 h2 h3 h4 h5 h6 header hr i
 img ins kbd li main mark math nav ol p picture pre q rp rt ruby s samp section small source span strong
-sub summary sup table tbody td tfoot th thead time tr u ul var video wbr`.split(/\s+/));
+sub summary sup table tbody td tfoot th thead time tr u ul var video wbr`.split(/\s+/)]);
 
 function mathToHtml(tex: string, display: boolean): string {
   try {
@@ -236,7 +240,7 @@ export function noteToHtml(note: string, stem: string): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>

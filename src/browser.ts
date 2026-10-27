@@ -1,7 +1,7 @@
 // Opt-in JavaScript rendering through sandboxed Chromium. Keep Chromium's own
 // HeadlessChrome UA: this is for rendering, not impersonating a desktop browser.
-import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { statSync } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
 import type { APIResponse, Browser } from 'playwright-core';
 import type { Page } from './fetch.js';
 import { checkBrowserTarget, NetworkPolicyError, type RequestPolicy } from './network-policy.js';
@@ -9,11 +9,26 @@ import { envVar, warn } from './util.js';
 
 const SYSTEM_BROWSERS = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'brave-browser'];
 const MAX_REDIRECTS = 10;
+// Everything is fetched through route.fetch(), which buffers the whole body in process
+// memory. Article text never needs audio/video streams or webfonts, so refuse them
+// before a hostile page can allocate gigabytes.
+const BLOCKED_RESOURCES = new Set(['media', 'font', 'manifest', 'texttrack']);
+// Chromium's own UDP-based WebRTC paths bypass route interception entirely.
+const WEBRTC_ARGS = [
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--enforce-webrtc-ip-permission-check',
+];
 
 function onPath(name: string): string | null {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    // A relative PATH entry (".", "") would resolve against the current directory.
+    if (!isAbsolute(dir)) continue;
     const p = join(dir, name);
-    if (dir && existsSync(p)) return p;
+    try {
+      const st = statSync(p); // stat, not existsSync: a directory is not an executable
+      if (st.isFile() && (st.mode & 0o111)) return p;
+    } catch { /* not there, not executable */ }
   }
   return null;
 }
@@ -61,7 +76,7 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     const errors: string[] = [];
     for (const exe of [...new Set(candidates)]) {
       try {
-        browser = await chromium.launch({ executablePath: exe, headless: true, chromiumSandbox: true, timeout: remaining() });
+        browser = await chromium.launch({ executablePath: exe, headless: true, chromiumSandbox: true, args: WEBRTC_ARGS, timeout: remaining() });
         // A launch that races the deadline must not leave a browser process behind.
         if (finished) { await browser.close(); throw new Error(`timed out after ${timeoutSec} s`); }
         break;
@@ -87,6 +102,12 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     await context.route('**/*', async (route, request) => {
       let response: APIResponse | undefined;
       try {
+        // Playwright's request object always reports a type; tolerate its absence so a
+        // hand-built test double cannot silently skip the policy.
+        if (BLOCKED_RESOURCES.has(request.resourceType?.() ?? '')) {
+          await route.abort('blockedbyclient');
+          return;
+        }
         let target = await checkBrowserTarget(request.url(), policy);
         let method = request.method();
         let postData = request.postDataBuffer() ?? undefined;

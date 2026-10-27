@@ -121,7 +121,10 @@ and up to 15,000 characters of article text through OpenRouter to the configured
 `openrouter.enabled: true` opts into this for ordinary public URLs. Saved HTML and runs with
 private-network access still require `--llm` each time. `--no-llm` overrides the config.
 Do not enable it for confidential material without permission to send that material to the
-provider. Overridden or unused tags/description never trigger a call.
+provider. Overridden or unused tags/description never trigger a call. Instructions and article
+text are sent as separate system/user messages with the article delimited as data, and
+`openrouter.data_collection: deny` asks OpenRouter to skip providers that may retain or train
+on prompts (it can raise the price or fail if the model has no such provider).
 
 Local/intranet destinations and HTTPS-to-HTTP redirects are blocked by default. Use
 `--allow-private` only for intentional local/intranet clipping. Chromium runs with its sandbox
@@ -143,6 +146,7 @@ openrouter:
   api_key: ""         # prefer OPENROUTER_API_KEY in the environment
   model: "z-ai/glm-5.3-flash"
   timeout: 60
+  data_collection: allow  # deny = skip OpenRouter providers that may retain/train on prompts
 browser:
   mode: never         # never | auto; --browser explicitly runs Chromium
   executable: ""      # path to chromium/chrome
@@ -164,7 +168,12 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 - EPUB: images are downloaded into the book, because EPUB 3 does not allow remote images
   (epubcheck RSC-006). All 8 test EPUBs pass epubcheck 5.2.1 with 0 errors and 0 warnings.
 - Page charset is honoured (e.g. windows-1250) instead of assuming UTF-8.
+- Notes are Markdown, not code: fence languages that note apps execute (`dataview`,
+  `dataviewjs`, `templater`) are relabelled `text`, and inline code starting with `$=` gets a
+  zero-width space so a clipped page cannot run a query in Obsidian. Ordinary code is untouched.
 - Explicitly enabled, sandboxed headless browser for pages that only render with JavaScript.
+  Browser media/font/manifest requests are refused (they are buffered in-process) and Chromium's
+  non-proxied WebRTC UDP paths are disabled.
 
 ## Tests
 

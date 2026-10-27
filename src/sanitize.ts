@@ -14,6 +14,7 @@ const MATH_TAGS = `math semantics annotation mrow mi mn mo mtext mfrac msup msub
  mtable mtr mtd menclose mstyle mspace mover munder munderover mpadded mphantom mmultiscripts
  mprescripts none`.split(/\s+/).filter(Boolean);
 const TAGS = new Set([...HTML_TAGS, ...MATH_TAGS]);
+export { HTML_TAGS as ALLOWED_HTML_TAGS, TAGS, MATH_TAGS };
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 // Require actual raster signatures; a Content-Type header (or .png filename) is not proof.
@@ -208,6 +209,28 @@ function sanitizeRawHtml(raw: string): string {
 }
 
 const escapeMd = (s: string) => s.replace(/[\\`*_[\]{}()<>!$]/g, '\\$&');
+
+// wclip never executes Markdown, but the note's viewer might: Obsidian runs Dataview and
+// Templater fences and `$=` inline queries with vault access. A clipped page must not be
+// able to turn itself into code in the vault that opens it.
+const EXECUTABLE_FENCES = new Set(['dataview', 'dataviewjs', 'templater', 'templater-js', 'js-engine',
+  'meta-bind', 'meta-bind-button', 'quickadd']);
+// Inline Dataview JS queries start with `$=`. Inline DQL (`= expr`) is read-only and can
+// stay, so ordinary `=formula` code examples keep their text.
+const INLINE_QUERY = /^(`+)[ \t]*(\$=)/;
+
+export function defangActiveCode(raw: string, codespan: boolean): string {
+  if (codespan) {
+    // A zero-width space after the opening backticks hides the `$=` prefix without
+    // pretending to be different code.
+    const m = INLINE_QUERY.exec(raw);
+    return m ? `${m[1]}\u200b${raw.slice(m[1].length)}` : raw;
+  }
+  const m = /^([ \t]*(?:`{3,}|~{3,})[ \t]*)([^\s`]+)/.exec(raw);
+  if (!m || !EXECUTABLE_FENCES.has(m[2].toLowerCase())) return raw;
+  return `${m[1]}text${raw.slice(m[0].length)}`;
+}
+
 function sanitizeMarkdownPass(md: string, transformHtml: (raw: string) => string, preserveMath = true): string {
   // --stdout is also a terminal sink. Strip actual controls, not source examples
   // such as the four printable characters "\\x1b" inside a code fence.
@@ -217,7 +240,8 @@ function sanitizeMarkdownPass(md: string, transformHtml: (raw: string) => string
   const tokens = marked.lexer(math.text);
   function rewrite(token: Token): string {
     const t = token as Token & { href?: string; text?: string; tokens?: Token[]; items?: Token[]; header?: { tokens: Token[] }[]; rows?: { tokens: Token[] }[][] };
-    if (t.type === 'code' || t.type === 'codespan') return t.raw;
+    if (t.type === 'code') return defangActiveCode(t.raw, false);
+    if (t.type === 'codespan') return defangActiveCode(t.raw, true);
     if (t.type === 'html') return sanitizeRawHtml(transformHtml(t.raw));
     if (['link', 'image', 'def'].includes(t.type) && !safeUrl(t.href ?? '', t.type === 'image'))
       return t.type === 'def' ? '' : escapeMd(t.text ?? '');

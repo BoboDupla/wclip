@@ -16,7 +16,7 @@ export interface Config {
   timeout: number;
   progress: boolean;
   allow_private: boolean;
-  openrouter: { enabled: boolean; api_key: string; model: string; timeout: number };
+  openrouter: { enabled: boolean; api_key: string; model: string; timeout: number; data_collection: 'allow' | 'deny' };
   properties: string[];
   custom_properties: Record<string, unknown>;
   browser: { mode: 'auto' | 'never'; executable: string; min_words: number; timeout: number };
@@ -40,7 +40,7 @@ export const DEFAULTS: Config = {
   timeout: 30,
   progress: true,
   allow_private: false,
-  openrouter: { enabled: false, api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60 },
+  openrouter: { enabled: false, api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60, data_collection: 'allow' },
   properties: ['title', 'source', 'author', 'published', 'created', 'description', 'tags', 'read', 'reading time'],
   custom_properties: {},
   browser: { mode: 'never', executable: '', min_words: 50, timeout: 45 },
@@ -107,6 +107,8 @@ export function validateConfig(value: unknown): Config {
   if (typeof orc.enabled !== 'boolean') fail('openrouter.enabled', 'true or false');
   string(orc.api_key, 'openrouter.api_key'); string(orc.model, 'openrouter.model');
   number(orc.timeout, 'openrouter.timeout', 1, 600);
+  if (orc.data_collection !== 'allow' && orc.data_collection !== 'deny')
+    fail('openrouter.data_collection', 'allow or deny');
   if (!isObj(c.browser)) fail('browser', 'a mapping');
   const b = c.browser as Record<string, unknown>;
   if (b.mode !== 'never' && b.mode !== 'auto') fail('browser.mode', 'never or auto');
@@ -161,6 +163,9 @@ openrouter:
   api_key: ${q(c.api_key)}
   model: ${q(c.model)}
   timeout: 60
+  # allow | deny. "deny" asks OpenRouter to skip providers that may retain or train on
+  # prompts. It can raise the price or fail if the model has no such provider.
+  data_collection: allow
 
 # Which frontmatter properties appear, and in what order.
 # Known: title, source, author, published, created,
