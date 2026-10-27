@@ -90,7 +90,7 @@ and `--no-progress` do the same on a terminal; `progress: false` in the config o
 
 ## How a page is fetched
 
-1. Plain HTTP with an honest user agent (`wclip/0.3.0 (personal article clipper)`).
+1. Plain HTTP with an honest user agent (`wclip/0.3.1 (personal article clipper)`).
 2. Only if that fails, returns under 2 KB, or yields no text: once more with a Firefox user
    agent, and that result is used only if it is bigger. tante.cc serves a small fake page to
    browser user agents (saved in `test/fixtures/tante-friction.browser-ua.html`), so the order matters.
@@ -148,9 +148,9 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 ## Releasing
 
 Bump the version in `package.json` and `src/fetch.ts`, merge, then push a tag:
-`git tag v0.3.0 && git push origin v0.3.0`. The `Release` workflow checks that the tag matches
+`git tag v0.3.1 && git push origin v0.3.1`. The `Release` workflow checks that the tag matches
 both versions, runs the tests, builds the binaries and bundles, smoke-tests the x64 ones and
-publishes the release. A tag with a hyphen (`v0.3.0-rc1`) becomes a pre-release. The same
+publishes the release. A tag with a hyphen (`v0.3.1-rc1`) becomes a pre-release. The same
 workflow runs on pull requests, without publishing.
 
 ## Tests
