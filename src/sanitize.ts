@@ -33,7 +33,8 @@ function decodeEntities(s: string): string {
 }
 
 export function safeUrl(value: string, image = false): boolean {
-  const s = decodeEntities(value).replace(/[\u0000-\u0020\u007f-\u009f\s]/g, '');
+  const decoded = decodeEntities(value);
+  const s = decoded.replace(/[\u0000-\u0020\u007f-\u009f\s]/g, '');
   if (/^data:/i.test(s)) {
     if (!image || s.length > MAX_IMAGE_BYTES * 1.4) return false;
     const m = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/]*={0,2})$/i.exec(s);
@@ -44,7 +45,7 @@ export function safeUrl(value: string, image = false): boolean {
   const scheme = /^([a-z][a-z\d+.-]*):/i.exec(s)?.[1].toLowerCase();
   if (scheme && !['http', 'https', ...(image ? [] : ['mailto'])].includes(scheme)) return false;
   try {
-    const u = new URL(s, 'https://wclip.invalid/');
+    const u = new URL(decoded.trim(), 'https://wclip.invalid/');
     return u.protocol === 'mailto:' ? !image : /^https?:$/.test(u.protocol) && !!u.hostname && !u.username && !u.password;
   } catch { return false; }
 }
@@ -84,7 +85,69 @@ export function sanitizeBody(html: string): string {
 
 // Skip every backtick span and both fenced-code syntaxes, including an unclosed fence.
 // A fresh prefix also makes literal WCMATHPH999Z (or another article's placeholders) inert.
+// HTML attributes are not TeX. Record tag ranges in one scan so dollars in URLs,
+// quoted attribute values and comments cannot hide markup from the sanitizer or
+// replace part of an href with MathML. Malformed nested/unclosed tags stay bounded.
+function htmlTagRanges(md: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (let i = 0; i < md.length;) {
+    const start = md.indexOf('<', i);
+    if (start < 0) break;
+    if (md.startsWith('<!--', start)) {
+      const end = md.indexOf('-->', start + 4);
+      i = end < 0 ? md.length : end + 3;
+      ranges.push([start, i]); continue;
+    }
+    let j = start + 1;
+    if (md[j] === '/') j++;
+    if (!/[A-Za-z]/.test(md[j] ?? '')) { i = j + 1; continue; }
+    while (/[A-Za-z0-9:-]/.test(md[j] ?? '') && j < md.length) j++;
+    if (j < md.length && !/[\s/>]/.test(md[j])) { i = j; continue; }
+    let quote = '';
+    for (; j < md.length; j++) {
+      const c = md[j];
+      if (quote) { if (c === quote) quote = ''; continue; }
+      if (c === '"' || c === "'") { quote = c; continue; }
+      if (c === '<') break;
+      if (c === '>') { j++; ranges.push([start, j]); break; }
+    }
+    i = Math.max(start + 1, j);
+  }
+  return ranges;
+}
+
+function nonMathRanges(md: string): [number, number][] {
+  const ranges = htmlTagRanges(md);
+  // Markdown destinations (including relative links) and reference definitions
+  // must stay URLs even when a server legitimately uses dollar signs in a path.
+  for (let i = 0; i < md.length;) {
+    const marker = md.indexOf('](', i);
+    if (marker < 0) break;
+    let j = marker + 2;
+    while (md[j] === ' ' || md[j] === '\t') j++;
+    const start = j;
+    if (md[j] === '<') {
+      const close = md.indexOf('>', j + 1);
+      j = close < 0 ? md.length : close + 1;
+    } else {
+      let nested = 0;
+      for (; j < md.length; j++) {
+        if (md[j] === '\\') { j++; continue; }
+        if (/\s/.test(md[j])) break;
+        if (md[j] === '(') nested++;
+        if (md[j] === ')' && nested-- === 0) break;
+      }
+    }
+    ranges.push([start, j]); i = Math.max(marker + 2, j);
+  }
+  for (const m of md.matchAll(/^ {0,3}\[[^\]\n]+\]:[ \t]*(?:<[^>\n]*>|[^\s]+)/gm)) ranges.push([m.index, m.index + m[0].length]);
+  for (const m of md.matchAll(/(?:https?:\/\/|mailto:)[^\s<>"']+/gi)) ranges.push([m.index, m.index + m[0].length]);
+  return ranges.sort((a, b) => a[0] - b[0]);
+}
+
 export function protectMath(md: string): { text: string; restore: (s: string, render?: (tex: string, display: boolean) => string) => string } {
+  const tags = nonMathRanges(md);
+  let tagCursor = 0;
   const prefix = `WCMATH${randomUUID().replace(/-/g, '')}PH`;
   const store: { raw: string; tex: string; display: boolean }[] = [];
   // Index exact backtick runs once. Repeatedly searching the remaining article
@@ -114,8 +177,10 @@ export function protectMath(md: string): { text: string; restore: (s: string, re
       if (end !== undefined) pattern.lastIndex = end + run.length;
       out += md.slice(m.index, pattern.lastIndex);
     } else {
+      while (tagCursor < tags.length && tags[tagCursor][1] <= m.index) tagCursor++;
+      const crossesTag = tagCursor < tags.length && tags[tagCursor][0] < pattern.lastIndex;
       const tex = m[4] ?? m[5];
-      if (m[5] !== undefined && /\d/.test(md[pattern.lastIndex] ?? '') && !/[\\^_{}]/.test(tex)) out += m[0];
+      if (crossesTag || (m[5] !== undefined && /\d/.test(md[pattern.lastIndex] ?? '') && !/[\\^_{}]/.test(tex))) out += m[0];
       else {
         out += `${prefix}${store.length}Z`;
         store.push({ raw: m[0], tex, display: m[4] !== undefined });
@@ -143,11 +208,11 @@ function sanitizeRawHtml(raw: string): string {
 }
 
 const escapeMd = (s: string) => s.replace(/[\\`*_[\]{}()<>!$]/g, '\\$&');
-export function sanitizeMarkdown(md: string, transformHtml: (raw: string) => string = raw => raw): string {
+function sanitizeMarkdownPass(md: string, transformHtml: (raw: string) => string, preserveMath = true): string {
   // --stdout is also a terminal sink. Strip actual controls, not source examples
   // such as the four printable characters "\\x1b" inside a code fence.
   md = md.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '');
-  const math = protectMath(md);
+  const math = preserveMath ? protectMath(md) : { text: md, restore: (s: string) => s };
   const marked = new Marked({ gfm: true });
   const tokens = marked.lexer(math.text);
   function rewrite(token: Token): string {
@@ -172,7 +237,49 @@ export function sanitizeMarkdown(md: string, transformHtml: (raw: string) => str
     }
     return raw;
   }
-  return math.restore(tokens.map(rewrite).join(''));
+  const clean = tokens.map(rewrite).join('');
+  return math.restore(clean, (tex: string, display: boolean) => {
+    // A math-unaware Markdown viewer must also be safe. Do not restore a masked
+    // javascript link or raw HTML simply because dollars surrounded it.
+    const safeTex = sanitizeMarkdownPass(tex, raw => raw, false);
+    const delimiter = display ? '$$' : '$';
+    return `${delimiter}${safeTex}${delimiter}`;
+  });
+}
+
+export function sanitizeMarkdown(md: string, transformHtml: (raw: string) => string = raw => raw): string {
+  // Removing a token can join neighbouring text into a new HTML tag/URL. Re-lex
+  // until stable, with a strict pass budget. Deep adversarial joins fall back to
+  // sanitized HTML rather than publishing still-active Markdown.
+  const finish = (source: string): string => {
+    // Validate the assembled result in a math-unaware renderer too. Token-local
+    // safety is not enough: removal can alter parser context (including code
+    // indentation inside a dollar span). Only adversarial/changed documents
+    // fall back to sanitized HTML; ordinary Markdown remains byte-identical.
+    const html = new Marked({ gfm: true }).parse(source, { async: false }) as string;
+    const safe = sanitizeBody(html);
+    const canonical = (s: string) => {
+      const { document } = parseHTML(`<html><body>${s}</body></html>`);
+      // GFM autolinks deliberately defanged hosts in security articles (graph[.]...)
+      // which cannot navigate. Ignoring only syntactically invalid HTTP(S) attrs
+      // avoids converting a whole legitimate article to HTML for that inert link.
+      for (const el of document.querySelectorAll('[href], [src]')) {
+        for (const name of ['href', 'src']) {
+          const value = el.getAttribute(name);
+          if (!value || !/^https?:/i.test(value.trim())) continue;
+          try { new URL(value); } catch { el.removeAttribute(name); }
+        }
+      }
+      return document.body.innerHTML;
+    };
+    return canonical(html) === canonical(safe) ? source : safe;
+  };
+  for (let pass = 0; pass < 4; pass++) {
+    const clean = sanitizeMarkdownPass(md, transformHtml);
+    if (clean === md) return finish(clean);
+    md = clean;
+  }
+  return sanitizeBody(new Marked({ gfm: true }).parse(md, { async: false }) as string);
 }
 
 // An annotation is text, never HTML. Dollar delimiters and tag-like less-than signs

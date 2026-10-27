@@ -151,6 +151,7 @@ async function embedImages(document: Document, fetchImage: ImageFetcher, makeTas
   const total = queue.length;
   const task = total ? makeTask?.() : undefined;
   let loaded = 0, bytes = 0, n = 0;
+  let budgetExhausted = false;
   const tick = () => task?.progress(++loaded, total);
   task?.progress(0, total);
   const load = async (url: string, i: number): Promise<EpubImage | null> => {
@@ -161,6 +162,7 @@ async function embedImages(document: Document, fetchImage: ImageFetcher, makeTas
       if (r.type === 'image/svg+xml') warn('epub: SVG image omitted (active SVG content is not supported)');
       if (!type || !CORE_IMAGE_TYPES[type] || r.data.length > MAX_IMAGE_BYTES) return null;
       if (bytes + r.data.length > MAX_EPUB_IMAGE_BYTES) {
+        budgetExhausted = true;
         warn('epub: total image budget (60 MiB) reached; image omitted');
         return null;
       }
@@ -169,7 +171,9 @@ async function embedImages(document: Document, fetchImage: ImageFetcher, makeTas
     } catch { return null; }
     finally { tick(); }
   };
-  const workers = Array.from({ length: 4 }, async () => { for (let u; (u = queue.shift()); ) {
+  const workers = Array.from({ length: 4 }, async () => { for (let u; !budgetExhausted && bytes < MAX_EPUB_IMAGE_BYTES && (u = queue.shift()); ) {
+    // Stop scheduling once full; only the at-most-four already in-flight requests
+    // can finish beyond the retained-payload budget. Do not fetch all 128 anyway.
     const pending = load(u, ++n);
     byUrl.set(u, pending);
     await pending;

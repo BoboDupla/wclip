@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { renderMarkdown, noteToHtml } from '../dist/render.js';
+import { sanitizeMarkdown } from '../dist/sanitize.js';
+import { Marked } from 'marked';
 
 const executable = process.env.WCLIP_CHROMIUM;
 test('real sandboxed Chromium renders sanitized content without executing article handlers',
@@ -27,6 +29,14 @@ test('real sandboxed Chromium renders sanitized content without executing articl
       assert.equal(await page.evaluate(() => window.__wclipAttack), undefined);
       assert.equal(await page.locator('script,iframe,object,svg,[onerror],[ontoggle],[onclick]').count(), 0);
       assert.equal(await page.locator('math mfrac').count(), 1);
+      // The Markdown note must also be safe in a viewer with no math extension.
+      const notePayload = '$<img src=x onerror="window.__wclipAttack=5">$\n\n' +
+        '<a href="https://example.org/$" onclick="window.__wclipAttack=6" data-x="$">link</a>\n\n' +
+        'before <img <iframe></iframe>src=x onerror="window.__wclipAttack=7"> after';
+      await page.setContent(new Marked({ gfm: true }).parse(sanitizeMarkdown(notePayload)));
+      await page.waitForTimeout(150);
+      assert.equal(await page.evaluate(() => window.__wclipAttack), undefined);
+      assert.equal(await page.locator('script,iframe,object,svg,[onerror],[ontoggle],[onclick]').count(), 0);
       await page.setContent(noteToHtml(input, 'sanitized'));
       assert.equal(await page.locator('meta[http-equiv="Content-Security-Policy"]').count(), 1);
     } finally { await browser.close(); }

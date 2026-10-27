@@ -39,8 +39,11 @@ vulnerabilities in third-party note viewers are outside wclip's guarantees.
 
 The Node HTTP client checks the resolved address actually handed to the connection, repeats
 validation on redirects, refuses URL credentials and HTTPS-to-HTTP downgrades, and limits wire
-and decompressed bodies. Image downloads have per-image and aggregate limits. Local HTML and
-config inputs are also size-limited. Limits reduce denial-of-service exposure; they are not
+and decompressed bodies. Pages/local HTML are capped at 20 MiB, each image at 15 MiB, and
+EPUBs at 128 unique image requests and 60 MiB of retained image payload. Scheduling stops when
+the image budget fills; already in-flight requests can still finish (at most four downloads).
+Config files and arXiv metadata responses are capped at 1 MiB; OpenRouter responses at 2 MiB.
+Limits reduce denial-of-service exposure; they are not
 proof that every possible hostile document will parse in constant time or memory. The limits
 cover Node downloads and extractor input; explicitly enabled Chromium can still consume CPU
 and memory while running page scripts and buffering browser resources. Use OS-level resource
