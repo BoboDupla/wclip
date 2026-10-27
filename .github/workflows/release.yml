@@ -76,6 +76,18 @@ jobs:
           ln -sfn ../@oven/bun-linux-x64/bin/bun node_modules/.bin/bun
           node_modules/.bin/bun --version
 
+      # Ubuntu 24.04 runners ship kernel.apparmor_restrict_unprivileged_userns=1, which
+      # makes every Chromium on the image report "No usable sandbox!" and fails the
+      # browser test ("CI must provide a functioning sandbox"). Lift the restriction so
+      # the test exercises a real sandbox instead of the job dying on runner variance.
+      - name: Allow Chromium's user-namespace sandbox
+        run: |
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "no apparmor userns sysctl on this runner"
+          fi
+
       - run: npm test
         env:
           WCLIP_CHROMIUM: /usr/bin/google-chrome
