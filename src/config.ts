@@ -30,7 +30,7 @@ export const DEFAULT_BOILERPLATE: Record<string, string[]> = {
 };
 
 export const DEFAULTS: Config = {
-  articles_dir: '~/apps/dufs/data/articles',
+  articles_dir: '~/articles',
   reading_wpm: 200,
   include_images: true,
   make_html: true,

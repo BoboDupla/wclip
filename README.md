@@ -107,6 +107,8 @@ The only other outbound calls are the arXiv API (metadata for arxiv.org pages), 
 New, optional keys (defaults apply when they're missing):
 
 ```yaml
+articles_dir: ~/articles   # notes and their html/ and epub/ land here (default)
+reading_wpm: 200
 progress: true        # live status line on a terminal (false = plain lines)
 browser:
   mode: auto          # auto | never
@@ -134,9 +136,9 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 ## Releasing
 
 Bump the version in `package.json` and `src/fetch.ts`, merge, then push a tag:
-`git tag v0.4.0 && git push origin v0.4.0`. The `Release` workflow checks that the tag matches
+`git tag v0.4.1 && git push origin v0.4.1`. The `Release` workflow checks that the tag matches
 both versions, runs the tests, builds the binaries and bundles, smoke-tests the x64 ones and
-publishes the release. A tag with a hyphen (`v0.4.0-rc1`) becomes a pre-release. The same
+publishes the release. A tag with a hyphen (`v0.4.1-rc1`) becomes a pre-release. The same
 workflow runs on pull requests, without publishing.
 
 ## Tests
