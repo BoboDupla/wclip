@@ -84,6 +84,13 @@ jobs:
       - run: npm run build:bin
       - run: npm run build:js
 
+      # Ship the installer as a release asset so `.../releases/latest/download/install.sh`
+      # is immutable and checksummed like the binaries it fetches.
+      - name: Stage installer
+        run: |
+          sh -n install.sh
+          cp install.sh build/install.sh
+
       # Chromium is opt-in; the loopback-only smoke fixture explicitly allows private IPs.
       - name: Smoke-test the x64 binaries and Node bundle
         env:
@@ -97,7 +104,7 @@ jobs:
         working-directory: build
         run: |
           sha256sum wclip-linux-x64 wclip-linux-x64-baseline wclip-linux-arm64 \
-            wclip-node.js wclip-bun.js > SHA256SUMS
+            wclip-node.js wclip-bun.js install.sh > SHA256SUMS
           sha256sum --strict --check SHA256SUMS
 
       - name: Upload tested release files
@@ -114,6 +121,7 @@ jobs:
             build/wclip-linux-arm64
             build/wclip-node.js
             build/wclip-bun.js
+            build/install.sh
             build/SHA256SUMS
 
   # Private repositories require GitHub Enterprise Cloud for attestations. This
@@ -145,6 +153,7 @@ jobs:
             build/wclip-linux-arm64
             build/wclip-node.js
             build/wclip-bun.js
+            build/install.sh
 
   publish:
     needs: [build, attest]
@@ -177,4 +186,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${pre[@]}" --verify-tag \
             --title "wclip $GITHUB_REF_NAME" --generate-notes \
             wclip-linux-x64 wclip-linux-x64-baseline wclip-linux-arm64 \
-            wclip-node.js wclip-bun.js SHA256SUMS
+            wclip-node.js wclip-bun.js install.sh SHA256SUMS

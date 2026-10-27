@@ -17,6 +17,25 @@ rather than by who wrote it.
 
 ## Install
 
+**One-line install:** fetches the release binary for your architecture, verifies it
+against `SHA256SUMS`, smoke-runs it, and drops it in `~/.local/bin`:
+
+```sh
+curl -fsSL https://github.com/BoboDupla/wclip/releases/latest/download/install.sh | sh
+```
+
+Pin a version or change the destination, and note the `-s --`, which is needed to pass
+arguments through a pipe:
+
+```sh
+curl -fsSL https://github.com/BoboDupla/wclip/releases/latest/download/install.sh \
+  | sh -s -- --version v0.5.1 --bin-dir ~/bin
+```
+
+If you would rather read it first, `install.sh` is a release asset and is listed in
+`SHA256SUMS`; `curl -fsSLO .../install.sh && sh install.sh` works too. It refuses musl
+systems (Alpine) instead of downloading a glibc binary that cannot run.
+
 **From a release:** each `v*` tag gets a GitHub Release with the files below and a
 `SHA256SUMS`. Download them from the releases page, or with the GitHub CLI:
 
