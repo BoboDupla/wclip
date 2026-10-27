@@ -26,7 +26,8 @@ in `build/`.
 your `$PATH` as `wclip` and `chmod +x` it. It's about 95 MB because it carries the Bun runtime.
 Built with `bun build --compile` (Bun 1.4.3); it needs glibc, and the x64 build needs a CPU
 from roughly 2013 or later (AVX2); for older CPUs use `wclip-linux-x64-baseline`. The arm64
-build is cross-compiled and hasn't been run on real arm64 hardware yet.
+build is cross-compiled from x64 and is not covered by the CI smoke test; the v0.3.1 arm64
+binary was run by hand on a real aarch64 host (version, clip, HTML and EPUB exports).
 
 **Single JavaScript file (about 5.7 MB, uses your installed runtime):** `build/wclip-node.js`
 runs with Node.js 20+ (`node wclip-node.js URL`), `build/wclip-bun.js` with Bun
