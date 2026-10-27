@@ -9,6 +9,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { parseHTML } from 'linkedom';
 import { parse as parseYaml } from 'yaml';
 import type { Config } from './config.js';
+import { formatBytes, isVerbose, note as noteLine, startTask, type Task } from './status.js';
 import { today, warn } from './util.js';
 
 const esc = (s: string, quote = false) => {
@@ -145,19 +146,24 @@ export function makeImageFetcher(userAgent: string, timeoutSec: number): ImageFe
   };
 }
 
-async function embedImages(document: Document, fetchImage: ImageFetcher): Promise<EpubImage[]> {
+async function embedImages(document: Document, fetchImage: ImageFetcher, makeTask?: () => Task): Promise<EpubImage[]> {
   const imgs = [...document.querySelectorAll('img')];
   const byUrl = new Map<string, Promise<EpubImage | null>>();
   let n = 0;
   const load = (url: string) => {
     if (!byUrl.has(url)) {
       const i = ++n;
-      byUrl.set(url, fetchImage(url).then(r => r && { path: `images/img${i}.${CORE_IMAGE_TYPES[r.type]}`, ...r }));
+      byUrl.set(url, fetchImage(url).then(r => { tick(); return r && { path: `images/img${i}.${CORE_IMAGE_TYPES[r.type]}`, ...r }; }));
     }
     return byUrl.get(url)!;
   };
   // At most 4 downloads at a time.
   const queue = imgs.map(img => img.getAttribute('src') ?? '').filter(u => /^https?:/.test(u));
+  const total = new Set(queue).size;
+  const task = total ? makeTask?.() : undefined;
+  let loaded = 0;
+  const tick = () => task?.progress(++loaded, total);
+  task?.progress(0, total);
   const workers = Array.from({ length: 4 }, async () => { for (let u; (u = queue.shift()); ) await load(u); });
   await Promise.all(workers);
   let failed = 0;
@@ -177,8 +183,9 @@ async function embedImages(document: Document, fetchImage: ImageFetcher): Promis
     }
   }
   if (failed) warn(`epub: ${failed} image(s) could not be downloaded and were left out`);
-  const out = await Promise.all(byUrl.values());
-  return out.filter((x): x is EpubImage => x !== null);
+  const out = (await Promise.all(byUrl.values())).filter((x): x is EpubImage => x !== null);
+  task?.done(`${out.length} image(s)${failed ? `, ${failed} failed` : ''}`);
+  return out;
 }
 
 function frontmatterBits(fm: Record<string, unknown>, stem: string) {
@@ -233,11 +240,12 @@ ${renderMarkdown(body)}
 `;
 }
 
-export async function noteToEpub(note: string, stem: string, fetchImage: ImageFetcher | null): Promise<Uint8Array> {
+export async function noteToEpub(note: string, stem: string, fetchImage: ImageFetcher | null,
+                                  makeTask?: () => Task): Promise<Uint8Array> {
   const { fm, body } = parseNote(note);
   const { title, source, created, authors } = frontmatterBits(fm, stem);
   const { document } = parseHTML(`<!doctype html><html><body>${renderMarkdown(body)}</body></html>`);
-  const images = fetchImage ? await embedImages(document as unknown as Document, fetchImage) : [];
+  const images = fetchImage ? await embedImages(document as unknown as Document, fetchImage, makeTask) : [];
   const bodyX = [...document.body.childNodes].map(n => toXhtml(n as unknown as Node)).join('');
   const t = esc(title);
   const byline = authors.map(a => esc(a)).join(' &#183; '); // &middot; is not XML-declared
@@ -312,7 +320,7 @@ export async function writeExports(destMd: string, note: string, cfg: Config, fe
   const stem = basename(destMd, '.md');
   const jobs: [boolean, string, () => string | Uint8Array | Promise<Uint8Array>][] = [
     [cfg.make_html, join(dirname(destMd), 'html', `${stem}.html`), () => noteToHtml(note, stem)],
-    [cfg.make_epub, join(dirname(destMd), 'epub', `${stem}.epub`), () => noteToEpub(note, stem, fetchImage)],
+    [cfg.make_epub, join(dirname(destMd), 'epub', `${stem}.epub`), () => noteToEpub(note, stem, fetchImage, () => startTask('embedding images'))],
   ];
   for (const [on, out, make] of jobs) {
     if (!on) continue;
@@ -320,6 +328,7 @@ export async function writeExports(destMd: string, note: string, cfg: Config, fe
       const data = await make();
       mkdirSync(dirname(out), { recursive: true });
       writeFileSync(out, data);
+      if (isVerbose()) noteLine(`  wrote ${out} (${formatBytes(typeof data === 'string' ? new TextEncoder().encode(data).length : data.length)})`);
     } catch (e) {
       warn(`could not write ${out.endsWith('.epub') ? 'epub' : 'html'} rendition: ${(e as Error).message}`);
     }

@@ -52,10 +52,11 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
   }
   try {
     const page = await browser.newPage();
+    const started = Date.now();
     await page.goto(url, { waitUntil: 'load', timeout: timeoutSec * 1000 });
     // Give client-side rendering a moment to settle; some pages never go fully idle.
     await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-    return { html: await page.content(), url: page.url(), via: 'headless browser' };
+    return { html: await page.content(), url: page.url(), via: 'headless browser', ms: Date.now() - started };
   } catch (e) {
     warn(`headless browser: ${(e as Error).message.split('\n')[0]}`);
     return null;

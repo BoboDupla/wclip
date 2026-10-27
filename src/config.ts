@@ -13,6 +13,7 @@ export interface Config {
   make_html: boolean;
   make_epub: boolean;
   timeout: number;
+  progress: boolean;
   openrouter: { api_key: string; model: string; timeout: number };
   properties: string[];
   custom_properties: Record<string, unknown>;
@@ -35,6 +36,7 @@ export const DEFAULTS: Config = {
   make_html: true,
   make_epub: true,
   timeout: 30,
+  progress: true,
   openrouter: { api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60 },
   properties: ['title', 'source', 'author', 'published', 'created', 'description', 'tags', 'read', 'reading time'],
   custom_properties: {},
@@ -90,6 +92,10 @@ make_epub: true
 
 # HTTP timeout (seconds) for fetching pages:
 timeout: 30
+
+# Live status line while working (spinner + progress bar for EPUB images).
+# Only drawn when stderr is a terminal; --no-progress and --quiet override it.
+progress: true
 
 # OpenRouter: generates tags + summary. Leave api_key empty to use
 # the OPENROUTER_API_KEY environment variable.

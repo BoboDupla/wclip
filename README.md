@@ -52,7 +52,7 @@ one, wclip still works; it just can't rescue JavaScript-only pages.
 
 ## Usage
 
-Same as before, plus three flags:
+Same as before, plus these flags:
 
 ```
 wclip URL [-t TITLE] [-a AUTHORS] [-p DATE] [-d DESC] [-g TAGS] [-r] [-f] [--stdout]
@@ -61,13 +61,36 @@ wclip --init-config              write a default config file
   --browser                      fetch with the headless browser right away
   --no-browser                   never use the headless browser
   --html FILE                    extract from a page you saved yourself; URL is still the source
+  -v, --verbose                  sizes, HTTP status, timings, written files
+  -q, --quiet                    no progress lines; warnings, errors, saved path only
+  --no-progress                  plain lines instead of a live status line
 ```
 
 `--bootstrap` is gone (npm handles dependencies).
 
+## Output
+
+Progress goes to stderr, so `--stdout` still emits the note and nothing else. When stderr is a
+terminal, one line is redrawn in place with a spinner and the elapsed time:
+
+```
+| fetching en.wikipedia.org                                                    0.4 s
+ok 1.9 MB from honest UA, 27323 words (HTTP 200, 173 ms) in 4.4 s
+| tags + summary via glm-5.3-flash                                             2.1 s
+ok everest, mountaineering, himalayas in 3.4 s
+| embedding images                                        [########--------] 21/41
+ok 41 image(s) in 0.5 s
+```
+
+A bar appears only where the total is known: the EPUB image downloads. Phases without a known
+length (fetch, extraction, tags) get a label, a spinner and a clock instead of a fake bar. Piped
+stderr (cron, `2>log`) gets plain `label ...` / `ok ...` lines and no escape codes. `TERM=dumb`
+and `--no-progress` do the same on a terminal; `progress: false` in the config or
+`$WCLIP_PROGRESS=0` turns the live line off everywhere.
+
 ## How a page is fetched
 
-1. Plain HTTP with an honest user agent (`wclip/0.2.0 (personal article clipper)`).
+1. Plain HTTP with an honest user agent (`wclip/0.3.0 (personal article clipper)`).
 2. Only if that fails, returns under 2 KB, or yields no text: once more with a Firefox user
    agent, and that result is used only if it is bigger. tante.cc serves a small fake page to
    browser user agents (saved in `test/fixtures/tante-friction.browser-ua.html`), so the order matters.
@@ -85,6 +108,7 @@ The only other outbound calls are the arXiv API (metadata for arxiv.org pages), 
 New, optional keys (defaults apply when they're missing):
 
 ```yaml
+progress: true        # live status line on a terminal (false = plain lines)
 browser:
   mode: auto          # auto | never
   executable: ""      # path to chromium/chrome
@@ -124,7 +148,7 @@ A host listed under `boilerplate` replaces that host's built-in list; other host
 ## Releasing
 
 Bump the version in `package.json` and `src/fetch.ts`, merge, then push a tag:
-`git tag v0.2.0 && git push origin v0.2.0`. The `Release` workflow checks that the tag matches
+`git tag v0.3.0 && git push origin v0.3.0`. The `Release` workflow checks that the tag matches
 both versions, runs the tests, builds the binaries and bundles, smoke-tests the x64 ones and
 publishes the release. A tag with a hyphen (`v0.3.0-rc1`) becomes a pre-release. The same
 workflow runs on pull requests, without publishing.

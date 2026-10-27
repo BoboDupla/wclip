@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // wclip — clip web articles to markdown notes with YAML frontmatter.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DEFAULTS, DEFAULT_CONFIG_TEMPLATE, configPath, expandHome, loadConfig, writePrivate, type Config } from './config.js';
 import type { Article } from './extract.js';
@@ -10,7 +10,8 @@ import { llmTagsSummary } from './llm.js';
 import { buildNote, type Fields } from './note.js';
 import { getArticle } from './pipeline.js';
 import { makeImageFetcher, writeExports } from './render.js';
-import { WebclipError, ask, closeInput, die, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
+import { WebclipError, ask, closeInput, die, hostOf, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
+import { configureStatus, isVerbose, startTask, stopStatus } from './status.js';
 
 const HELP = `usage: wclip [options] URL
 
@@ -33,9 +34,16 @@ options:
       --browser            fetch with the headless browser right away
       --no-browser         never use the headless browser
       --html FILE          extract from a saved HTML file (URL is still the source)
+  -v, --verbose            also show sizes, HTTP status and written files
+  -q, --quiet              no progress lines; warnings, errors and the saved path only
+      --no-progress        no live status line (plain lines instead)
       --init-config        write default config and exit
   -V, --version            print version
   -h, --help               show this help
+
+A live status line (with a progress bar for EPUB image downloads) is drawn when
+stderr is a terminal; set progress: false in the config or pass --no-progress
+to get plain lines instead.
 
 Config: ~/.config/wclip/config.yaml (override with $WCLIP_CONFIG)
 `;
@@ -43,14 +51,15 @@ Config: ~/.config/wclip/config.yaml (override with $WCLIP_CONFIG)
 type Args = {
   url?: string; interactive?: boolean; title?: string; author?: string; published?: string; description?: string;
   tags?: string; read?: boolean; force?: boolean; stdout?: boolean; browser?: boolean; 'no-browser'?: boolean;
-  html?: string;
+  html?: string; verbose?: boolean; quiet?: boolean; 'no-progress'?: boolean;
 };
 
 async function fetchArticle(url: string, cfg: Config, args: Args): Promise<Article> {
-  info(args.html !== undefined ? `Reading ${args.html} (source: ${url}) ...` : `Fetching ${url} ...`);
+  const task = startTask(args.html !== undefined ? `reading ${basename(args.html)}` : `fetching ${hostOf(url)}`);
   return getArticle(url, cfg, {
     browser: args.browser ? 'always' : args['no-browser'] ? 'never' : undefined,
     html: args.html !== undefined ? readFileSync(args.html, 'utf8') : undefined,
+    task,
   });
 }
 
@@ -142,7 +151,8 @@ async function main(): Promise<number> {
         description: { type: 'string', short: 'd' }, tags: { type: 'string', short: 'g' },
         read: { type: 'boolean', short: 'r' }, force: { type: 'boolean', short: 'f' },
         stdout: { type: 'boolean' }, browser: { type: 'boolean' }, 'no-browser': { type: 'boolean' },
-        html: { type: 'string' }, 'init-config': { type: 'boolean' },
+        html: { type: 'string' }, verbose: { type: 'boolean', short: 'v' }, quiet: { type: 'boolean', short: 'q' },
+        'no-progress': { type: 'boolean' }, 'init-config': { type: 'boolean' },
         version: { type: 'boolean', short: 'V' }, help: { type: 'boolean', short: 'h' },
       },
     });
@@ -165,15 +175,21 @@ async function main(): Promise<number> {
     return 0;
   }
   const cfg = await loadConfig();
+  configureStatus({
+    verbose: Boolean(args.verbose),
+    quiet: Boolean(args.quiet),
+    progress: args['no-progress'] ? false : cfg.progress,
+  });
   if (args.interactive) await interactiveClip(args.url ?? '', args, cfg);
   else if (args.url) await batchClip(normalizeUrl(args.url), args, cfg);
   else { process.stderr.write(HELP); return 1; }
   return 0;
 }
 
-process.on('SIGINT', () => { process.stderr.write('\naborted\n'); process.exit(130); });
+process.on('SIGINT', () => { stopStatus(); process.stderr.write('\naborted\n'); process.exit(130); });
 // exitCode, not exit(): exit() can cut off a large note still being piped from --stdout.
 main().finally(closeInput).then(code => { process.exitCode = code; }, e => {
+  stopStatus();
   if (e instanceof WebclipError) process.stderr.write(`error: ${e.message}\n`);
   else process.stderr.write(`error: ${(e as Error).stack ?? e}\n`);
   process.exitCode = 1;

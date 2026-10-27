@@ -11,7 +11,7 @@ import https from 'node:https';
 import zlib from 'node:zlib';
 import { warn } from './util.js';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 export const HONEST_UA = `wclip/${VERSION} (personal article clipper)`;
 export const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
 
@@ -23,6 +23,9 @@ export interface Page {
   html: string;
   url: string; // final URL after redirects
   via: string; // how it was obtained, for diagnostics
+  status?: number; // HTTP status, when there was one
+  bytes?: number; // decoded body size
+  ms?: number; // time spent fetching
 }
 
 function charsetOf(contentType: string | null, head: Uint8Array): string {
@@ -103,6 +106,7 @@ export function get(url: string, headers: Record<string, string>, timeoutSec: nu
 export async function fetchPage(url: string, ua: string, timeoutSec: number,
                                 tls: https.RequestOptions = {}): Promise<Page | null> {
   const label = ua === HONEST_UA ? 'honest UA' : 'browser UA';
+  const started = Date.now();
   try {
     const r = await get(url, {
       'User-Agent': ua,
@@ -119,7 +123,10 @@ export async function fetchPage(url: string, ua: string, timeoutSec: number,
       warn(`${label}: ${url} is ${ct.split(';')[0]}, not an HTML page`);
       return null;
     }
-    return { html: decodeBody(r.body, ct), url: r.url, via: label };
+    return {
+      html: decodeBody(r.body, ct), url: r.url, via: label,
+      status: r.status, bytes: r.body.length, ms: Date.now() - started,
+    };
   } catch (e) {
     warn(`${label}: ${(e as Error).message}`);
     return null;

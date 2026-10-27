@@ -1,7 +1,8 @@
 // OpenRouter tags + summary. On any failure the user is told and tags/description stay
 // EMPTY: no heuristic fallback (the owner's choice in the Python version).
 import type { Config } from './config.js';
-import { info, normalizeTag, warn } from './util.js';
+import { isVerbose, startTask } from './status.js';
+import { normalizeTag, warn } from './util.js';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -51,17 +52,21 @@ export function parseTagsSummary(raw: string): { tags: string[]; summary: string
 }
 
 export async function llmTagsSummary(title: string, content: string, cfg: Config): Promise<{ tags: string[]; summary: string } | null> {
-  info('Generating tags + summary via OpenRouter ...');
+  const task = startTask(`tags + summary via ${(cfg.openrouter.model || 'OpenRouter').split('/').pop()}`);
   let raw: string;
   try {
     raw = await openrouterComplete(cfg, prompt(title, content.slice(0, 15000))); // cap: keep it cheap
   } catch (e) {
+    task.fail();
     warn(`OpenRouter call failed — tags and description left empty. (${(e as Error).message})`);
     return null;
   }
   try {
-    return parseTagsSummary(raw);
+    const out = parseTagsSummary(raw);
+    task.done(`${out.tags.join(', ')}${isVerbose() ? ` + ${out.summary.length}-char summary` : ''}`);
+    return out;
   } catch (e) {
+    task.fail();
     warn(`could not parse OpenRouter response — tags and description left empty. (${(e as Error).message})`);
     return null;
   }
