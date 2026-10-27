@@ -44,9 +44,13 @@ Rebuild with `npm run build:js`.
 
 ```sh
 git clone https://github.com/BoboDupla/wclip.git && cd wclip
-ln -s "$PWD/wclip" ~/bin/wclip    # the launcher installs and builds on first run
+mkdir -p ~/.local/bin             # same place the release install goes
+ln -s "$PWD/wclip" ~/.local/bin/wclip   # the launcher installs and builds on first run
 wclip https://ploum.net/2025-09-03-calendar-txt.html
 ```
+
+To update a source install, `git pull` and then `npm run build` (or delete `dist/`, the launcher
+rebuilds it on the next run).
 
 On first run the launcher runs `npm ci --omit=dev` into `node_modules/` and compiles `src/` into
 `dist/` with a pinned TypeScript kept in `.tools/`, the way a virtualenv keeps its own
