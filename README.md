@@ -7,6 +7,14 @@ Extraction is [Defuddle](https://github.com/kepano/defuddle) 0.19.5 (the engine 
 Obsidian Web Clipper), with its content-pattern guessing turned off and explicit boilerplate
 selectors instead, because the guessing silently dropped real paragraphs.
 
+## How this was written
+
+Most of the code, tests and documentation here were drafted by AI coding agents (Claude Code,
+and Hermes running other models) at the author's direction, then reviewed and committed. What
+to build, which bugs were worth chasing and what counted as good enough are the author's calls;
+much of the typing and of the diagnosis is not. Judge the tool by its code and its test suite
+rather than by who wrote it.
+
 ## Install
 
 **From a release:** each `v*` tag gets a GitHub Release with the files below and a
