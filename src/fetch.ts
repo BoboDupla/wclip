@@ -11,7 +11,7 @@ import https from 'node:https';
 import zlib from 'node:zlib';
 import { warn } from './util.js';
 
-export const VERSION = '0.3.1';
+export const VERSION = '0.4.0';
 export const HONEST_UA = `wclip/${VERSION} (personal article clipper)`;
 export const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
 
