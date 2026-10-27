@@ -10,7 +10,7 @@ import { llmTagsSummary } from './llm.js';
 import { buildNote, type Fields } from './note.js';
 import { getArticle } from './pipeline.js';
 import { makeImageFetcher, writeExports } from './render.js';
-import { WebclipError, ask, closeInput, die, hostOf, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
+import { WclipError, ask, closeInput, die, hostOf, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
 import { configureStatus, isVerbose, startTask, stopStatus } from './status.js';
 
 const HELP = `usage: wclip [options] URL
@@ -190,7 +190,7 @@ process.on('SIGINT', () => { stopStatus(); process.stderr.write('\naborted\n'); 
 // exitCode, not exit(): exit() can cut off a large note still being piped from --stdout.
 main().finally(closeInput).then(code => { process.exitCode = code; }, e => {
   stopStatus();
-  if (e instanceof WebclipError) process.stderr.write(`error: ${e.message}\n`);
+  if (e instanceof WclipError) process.stderr.write(`error: ${e.message}\n`);
   else process.stderr.write(`error: ${(e as Error).stack ?? e}\n`);
   process.exitCode = 1;
 });

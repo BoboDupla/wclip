@@ -1,18 +1,16 @@
 # wclip
 
 Clips a web article to a Markdown note with YAML frontmatter, plus optional HTML and EPUB
-renditions. It replaces the Python `webclip` script and keeps its CLI flags, config keys and
-note format, so existing notes and configs keep working. It was called `webclip` until the
-move to this repository; see [Coming from webclip](#coming-from-webclip).
+renditions.
 
 Extraction is [Defuddle](https://github.com/kepano/defuddle) 0.19.5 (the engine behind
-Obsidian Web Clipper) with the fixes from the bake-off (`bakeoff/VERDICT.md`).
+Obsidian Web Clipper), with its content-pattern guessing turned off and explicit boilerplate
+selectors instead, because the guessing silently dropped real paragraphs.
 
 ## Install
 
 **From a release:** each `v*` tag gets a GitHub Release with the files below and a
-`SHA256SUMS`. The repository is private, so downloading needs your GitHub login, e.g. with the
-GitHub CLI:
+`SHA256SUMS`. Download them from the releases page, or with the GitHub CLI:
 
 ```sh
 gh release download -R BoboDupla/wclip -p wclip-linux-x64 -p SHA256SUMS   # latest release
@@ -26,8 +24,8 @@ in `build/`.
 your `$PATH` as `wclip` and `chmod +x` it. It's about 95 MB because it carries the Bun runtime.
 Built with `bun build --compile` (Bun 1.4.3); it needs glibc, and the x64 build needs a CPU
 from roughly 2013 or later (AVX2); for older CPUs use `wclip-linux-x64-baseline`. The arm64
-build is cross-compiled from x64 and is not covered by the CI smoke test; the v0.3.1 arm64
-binary was run by hand on a real aarch64 host (version, clip, HTML and EPUB exports).
+build is cross-compiled from x64 and is not covered by the CI smoke test; it has been run by
+hand on a real aarch64 host (version, a clip, HTML and EPUB exports).
 
 **Single JavaScript file (about 5.7 MB, uses your installed runtime):** `build/wclip-node.js`
 runs with Node.js 20+ (`node wclip-node.js URL`), `build/wclip-bun.js` with Bun
@@ -43,7 +41,8 @@ wclip https://ploum.net/2025-09-03-calendar-txt.html
 ```
 
 On first run the launcher runs `npm ci --omit=dev` into `node_modules/` and compiles `src/` into
-`dist/` with a pinned TypeScript kept in `.tools/`, like the Python version's `.venv` bootstrap.
+`dist/` with a pinned TypeScript kept in `.tools/`, the way a virtualenv keeps its own
+interpreter.
 After a `git pull` that changes `src/`, run `npm run build` (or delete `dist/`).
 
 The headless browser fallback needs a Chromium. It uses, in order: `browser.executable` from
@@ -53,7 +52,7 @@ one, wclip still works; it just can't rescue JavaScript-only pages.
 
 ## Usage
 
-Same as before, plus these flags:
+Flags:
 
 ```
 wclip URL [-t TITLE] [-a AUTHORS] [-p DATE] [-d DESC] [-g TAGS] [-r] [-f] [--stdout]
@@ -67,7 +66,6 @@ wclip --init-config              write a default config file
   --no-progress                  plain lines instead of a live status line
 ```
 
-`--bootstrap` is gone (npm handles dependencies).
 
 ## Output
 
@@ -91,7 +89,7 @@ and `--no-progress` do the same on a terminal; `progress: false` in the config o
 
 ## How a page is fetched
 
-1. Plain HTTP with an honest user agent (`wclip/0.3.1 (personal article clipper)`).
+1. Plain HTTP with an honest user agent (`wclip/<version> (personal article clipper)`).
 2. Only if that fails, returns under 2 KB, or yields no text: once more with a Firefox user
    agent, and that result is used only if it is bigger. tante.cc serves a small fake page to
    browser user agents (saved in `test/fixtures/tante-friction.browser-ua.html`), so the order matters.
@@ -101,11 +99,11 @@ and `--no-progress` do the same on a terminal; `progress: false` in the config o
 Defuddle's third-party API fallback is off (`useAsync: false`), and Defuddle is given a
 `fetch` that refuses every request, so page content never leaves your machine through it.
 The only other outbound calls are the arXiv API (metadata for arxiv.org pages), OpenRouter
-(tags and summary, as before) and image downloads for the EPUB.
+(tags and summary) and image downloads for the EPUB.
 
 ## Config
 
-`~/.config/wclip/config.yaml` (or `$WCLIP_CONFIG`). All the old keys mean the same thing.
+`~/.config/wclip/config.yaml` (or `$WCLIP_CONFIG`).
 New, optional keys (defaults apply when they're missing):
 
 ```yaml
@@ -120,31 +118,18 @@ boilerplate:          # CSS selectors removed before extraction, per host; "*" =
 ```
 
 A host listed under `boilerplate` replaces that host's built-in list; other hosts keep theirs.
-`properties` also accepts `site` and `license` now (off by default).
+`properties` also accepts `site` and `license` (off by default).
 
-## Coming from webclip
+## What it does with awkward pages
 
-- If `~/.config/wclip/config.yaml` doesn't exist, `~/.config/webclip/config.yaml` is read
-  instead, so nothing needs moving. Move it whenever you like
-  (`mv ~/.config/webclip ~/.config/wclip`); once the new file exists the old one is ignored.
-- `$WEBCLIP_CONFIG` and `$WEBCLIP_CHROMIUM` still work; `$WCLIP_CONFIG` and `$WCLIP_CHROMIUM`
-  win when both are set.
-- The honest user agent is now `wclip/<version>`, and binaries and bundles are named `wclip-*`.
-- An installed `webclip` command (e.g. `~/.local/bin/webclip`) keeps working; it's only a file
-  name. Rename it, or symlink `wclip` to it, when you switch to a build from this repo.
-
-## What changed compared to the Python version
-
-- Extraction: Defuddle with content-pattern guessing off (it silently deleted paragraphs) and
-  explicit boilerplate selectors instead. Keeps blockquotes, Ars subheadings and images that
-  trafilatura dropped; arXiv metadata comes from the arXiv API. Details: `bakeoff/VERDICT.md`.
+- Extraction keeps blockquotes, subheadings and images that Defuddle's defaults drop;
+  arXiv metadata comes from the arXiv API rather than the page.
 - Lead images: when a page shows its `og:image` at 400px or wider and Defuddle dropped it, it is
-  put back on top (fixes the missing Ars hero image; also adds tante's featured images).
-- EPUB: images are downloaded into the book. EPUB 3 does not allow remote images, so the old
-  EPUBs failed epubcheck and showed no pictures on most readers. All 8 test EPUBs pass
-  epubcheck 5.2.1 with 0 errors and 0 warnings.
-- Page charset is honoured (e.g. windows-1250), instead of assuming UTF-8.
-- Headless browser as a last resort, instead of "use Hermes" errors.
+  put back on top.
+- EPUB: images are downloaded into the book, because EPUB 3 does not allow remote images
+  (epubcheck RSC-006). All 8 test EPUBs pass epubcheck 5.2.1 with 0 errors and 0 warnings.
+- Page charset is honoured (e.g. windows-1250) instead of assuming UTF-8.
+- Headless browser as a last resort for pages that only render with JavaScript.
 
 ## Releasing
 
@@ -160,13 +145,13 @@ workflow runs on pull requests, without publishing.
 same golden pages, the HTML/EPUB output and the headless browser fallback.
 
 ```sh
-npm ci && npm test     # builds, then runs 45 tests offline
+npm ci && npm test     # builds, then runs the test suite offline
 ```
 
-`test/fixtures` holds the 8 bake-off pages plus saved arXiv API answers. `test/golden` holds
-the expected Markdown and metadata for each, and the frontmatter produced by the Python
-script's own `build_note()` for the same input (the new one must match it byte for byte).
-After an intended extraction change, run `node test/make-golden.mjs` and review the diff.
+`test/fixtures` holds eight captured article pages plus saved arXiv API answers. `test/golden`
+holds the expected Markdown and metadata for each, and the exact frontmatter a note must come
+out with. After an intended extraction change, run `node test/make-golden.mjs` and review the
+diff.
 
 The fetch tests run a local HTTP server: the tante decoy, a site that refuses non-browser
 clients, a windows-1250 page, and a JavaScript-only page. The real-Chromium test is skipped
@@ -177,8 +162,7 @@ when no Chromium is found.
 - `src/cli.ts` flags and the clip flow
 - `src/pipeline.ts` fetch order (honest UA, browser UA, headless browser)
 - `src/fetch.ts`, `src/browser.ts` HTTP and Playwright
-- `src/extract.ts` Defuddle plus the bake-off fixes
+- `src/extract.ts` Defuddle plus one named fix per known extraction failure
 - `src/note.ts` frontmatter; `src/render.ts` HTML/EPUB; `src/llm.ts` OpenRouter; `src/config.ts`
 - `dist/` compiled JavaScript (rebuild with `npm run build`); `build/` the single binaries
   (both git-ignored)
-- `bakeoff/` the Defuddle vs trafilatura comparison that picked the engine (`VERDICT.md`)

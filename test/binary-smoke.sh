@@ -28,7 +28,7 @@ document.getElementById('app').innerHTML = '<article><h1>Rendered</h1>' + [1,2,3
 HTML
 python3 -m http.server -d "$T/www" -b 127.0.0.1 8765 >/dev/null 2>&1 & SRV=$!
 sleep 1
-if [ -n "${WCLIP_CHROMIUM:-${WEBCLIP_CHROMIUM:-}}" ] || command -v chromium >/dev/null; then
+if [ -n "${WCLIP_CHROMIUM:-}" ] || command -v chromium >/dev/null; then
   if "$BIN" http://127.0.0.1:8765/ --stdout -g x -d y 2>/dev/null | grep -q 'only exists after JavaScript'; then
     echo "ok   headless browser fallback"; else echo "FAIL headless browser fallback"; fail=1; fi
 else

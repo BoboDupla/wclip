@@ -1,15 +1,15 @@
 import { createInterface } from 'node:readline';
 
-export class WebclipError extends Error {}
+export class WclipError extends Error {}
 
-// $WCLIP_<name>, falling back to the old $WEBCLIP_<name> so setups from before the rename keep working.
+// $WCLIP_<name>, e.g. $WCLIP_CONFIG to point at another config file.
 export function envVar(name: string): string | undefined {
-  return process.env[`WCLIP_${name}`] || process.env[`WEBCLIP_${name}`] || undefined;
+  return process.env[`WCLIP_${name}`] || undefined;
 }
 
 // Diagnostics go to stderr so --stdout emits only the note.
 export function die(msg: string): never {
-  throw new WebclipError(msg);
+  throw new WclipError(msg);
 }
 export function warn(msg: string): void {
   process.stderr.write(`warning: ${msg}\n`);
@@ -34,7 +34,7 @@ export function closeInput(): void {
   lines = null;
 }
 
-// Python's \w is Unicode-aware; these classes mirror it.
+// Word characters: letters, digits and underscore, in any script.
 const W = String.raw`[\p{L}\p{N}_]`;
 
 export function sanitizeFilename(title: string): string {

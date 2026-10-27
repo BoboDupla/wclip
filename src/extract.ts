@@ -1,4 +1,4 @@
-// Defuddle plus the remediations validated in bakeoff/VERDICT.md. Each fix is a separate, named step.
+// Defuddle plus one named fix per known extraction failure; test/extract.test.mjs pins each of them.
 import { parseHTML } from 'linkedom';
 import { Defuddle } from 'defuddle/node';
 import { HONEST_UA } from './fetch.js';

@@ -1,5 +1,5 @@
 // OpenRouter tags + summary. On any failure the user is told and tags/description stay
-// EMPTY: no heuristic fallback (the owner's choice in the Python version).
+// EMPTY: no heuristic fallback, by design.
 import type { Config } from './config.js';
 import { isVerbose, startTask } from './status.js';
 import { normalizeTag, warn } from './util.js';

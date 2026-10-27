@@ -1,5 +1,5 @@
 // Plain HTTP fetch. The honest UA goes first: some sites serve fabricated decoy pages to
-// clients that claim to be a browser (tante.cc, confirmed in bakeoff/decoy/). The browser
+// clients that claim to be a browser (tante.cc serves a small fake page to browser UAs). The browser
 // UA exists for the opposite failure, where a site or network path mangles non-browser clients.
 //
 // Requests go through node:https rather than fetch(). Node's fetch() (undici) always offers

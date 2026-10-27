@@ -1,4 +1,4 @@
-// Frontmatter + body, byte-compatible with the Python webclip's notes.
+// Frontmatter + body. The exact shape is pinned by test/golden/note-expected.md.
 import type { Config } from './config.js';
 import { DEFAULTS } from './config.js';
 import { normalizeTag, readingTime, today, warn, wordCount } from './util.js';

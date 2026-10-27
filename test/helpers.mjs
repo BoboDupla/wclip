@@ -1,4 +1,4 @@
-// Shared helpers for the regression tests. Fixtures are the bake-off pages (bakeoff/fixtures).
+// Shared helpers for the regression tests. Fixtures are captured article pages.
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../dist/config.js';

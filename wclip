@@ -1,6 +1,6 @@
 #!/bin/sh
 # wclip launcher: on first run installs the dependencies next to itself and compiles the
-# TypeScript (like the Python version's venv bootstrap), then runs the CLI. Symlink it into ~/bin.
+# TypeScript (so no global installs are needed), then runs the CLI. Symlink it into ~/bin.
 set -e
 DIR=$(dirname "$(readlink -f "$0")")
 if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20 ? 1 : 0)'; then

@@ -1,5 +1,5 @@
-// Regression tests on the 8 bake-off pages: exact golden output, plus one named check per
-// issue found in bakeoff/VERDICT.md so a failure says what broke.
+// Regression tests on the eight captured pages: exact golden output, plus one named check per
+// known extraction issue so a failure says what broke.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -54,7 +54,7 @@ test('arXiv: images are absolute URLs', async () => {
   }
 });
 
-test('Ars: subheadings of later body sections kept (trafilatura dropped them)', async () => {
+test('Ars: subheadings of later body sections kept', async () => {
   assert.match((await get('ars-meta-piracy')).content, /^## Evidence may prove Meta seeded more content/m);
   assert.match((await get('ars-meta-yandex')).content, /^## There’s got to be a better way/m);
 });

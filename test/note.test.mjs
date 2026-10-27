@@ -1,4 +1,4 @@
-// Frontmatter must stay byte-compatible with notes written by the Python webclip.
+// The note format is pinned by a golden note: any change here changes every future clip.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -8,14 +8,14 @@ import { parseTagsSummary } from '../dist/llm.js';
 import { parseDate, sanitizeFilename, today, wordCount } from '../dist/util.js';
 import { GOLDEN } from './helpers.mjs';
 
-test('note matches the Python webclip output byte for byte', () => {
-  // Expected output was produced by the Python script's own build_note() on the same input.
+test('note matches the golden note byte for byte', () => {
+  // Changing this output on purpose means updating test/golden/note-expected.md too.
   const c = JSON.parse(readFileSync(`${GOLDEN}note-case.json`, 'utf8'));
-  const expected = readFileSync(`${GOLDEN}note-python-webclip.md`, 'utf8').replace('{{created}}', today());
+  const expected = readFileSync(`${GOLDEN}note-expected.md`, 'utf8').replace('{{created}}', today());
   assert.equal(buildNote(c.fields, c.content, deepMerge(DEFAULTS, c.cfg)), expected);
 });
 
-test('empty author/tags/published render like the Python version', () => {
+test('empty author, tags and published render as empty properties', () => {
   const note = buildNote({ title: 'T', source: 's', author: '', published: '', description: '', tags: [], read: false },
     'x', DEFAULTS);
   assert.match(note, /\nauthor:\npublished:\n/);
@@ -29,7 +29,7 @@ test('optional site/license properties', () => {
   assert.equal(note, '---\ntitle: "T"\nsite: "Smashing Frames"\nlicense: "https://creativecommons.org/licenses/by-sa/4.0/"\n---\n\nx\n');
 });
 
-test('filenames and word counts follow the Python rules (Unicode-aware)', () => {
+test('filenames and word counts follow the documented rules (Unicode-aware)', () => {
   assert.equal(sanitizeFilename('Hello, World! Ärger über Čapek_s — 2025'), 'hello-world-ärger-über-čapek-s-2025');
   assert.equal(sanitizeFilename('!!!'), 'untitled');
   assert.equal(wordCount("Hello world it's well-known, 3.5 and [link](http://x/y) ![](http://i) Čapek"), 9);

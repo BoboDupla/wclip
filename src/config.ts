@@ -1,5 +1,5 @@
-// Config: same keys as the Python webclip, plus `browser` and `boilerplate`. Lives in
-// ~/.config/wclip/; ~/.config/webclip/ is still read when the new file doesn't exist.
+// Config: articles_dir and friends, plus `browser` and `boilerplate`. Lives in
+// ~/.config/wclip/config.yaml, or wherever $WCLIP_CONFIG points.
 import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, writeSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -22,7 +22,7 @@ export interface Config {
 }
 
 // Known boilerplate, removed by selector. Defuddle's own content-pattern guessing is off,
-// because it silently dropped real paragraphs (bakeoff/VERDICT.md). Keys are hosts; "*" applies everywhere.
+// because it silently dropped real paragraphs. Keys are hosts; "*" applies everywhere.
 export const DEFAULT_BOILERPLATE: Record<string, string[]> = {
   '*': ['[class^="cb_p6"]', '.cc-block', 'img[width="1"][height="1"]'],
   'ploum.net': ['div.signature'],
@@ -47,9 +47,7 @@ export const DEFAULTS: Config = {
 export function configPath(): string {
   const env = envVar('CONFIG');
   if (env) return env.replace(/^~(?=$|\/)/, homedir());
-  const current = join(homedir(), '.config', 'wclip', 'config.yaml');
-  const legacy = join(homedir(), '.config', 'webclip', 'config.yaml');
-  return !existsSync(current) && existsSync(legacy) ? legacy : current;
+  return join(homedir(), '.config', 'wclip', 'config.yaml');
 }
 
 export function expandHome(p: string): string {

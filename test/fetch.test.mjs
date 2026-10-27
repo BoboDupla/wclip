@@ -85,7 +85,7 @@ test('JS-only page falls back to the headless browser (stubbed browser)', async 
 });
 
 // Real Chromium, when one is available (set WCLIP_CHROMIUM, or Playwright's own browser).
-const chromium = process.env.WCLIP_CHROMIUM ?? process.env.WEBCLIP_CHROMIUM ?? ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/usr/bin/chromium'].find(existsSync);
+const chromium = process.env.WCLIP_CHROMIUM ?? ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/usr/bin/chromium'].find(existsSync);
 test('JS-only page through real headless Chromium', { skip: !chromium && 'no Chromium found' }, async () => {
   const c = deepMerge(cfg, { browser: { executable: chromium } });
   const a = await getArticle(`${base}/js`, c, { fetchBrowser: fetchWithBrowser });
