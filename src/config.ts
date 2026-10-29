@@ -16,6 +16,7 @@ export interface Config {
   timeout: number;
   progress: boolean;
   allow_private: boolean;
+  cookies_file: string;
   openrouter: { enabled: boolean; api_key: string; model: string; timeout: number; data_collection: 'allow' | 'deny' };
   properties: string[];
   custom_properties: Record<string, unknown>;
@@ -40,6 +41,8 @@ export const DEFAULTS: Config = {
   timeout: 30,
   progress: true,
   allow_private: false,
+  // Netscape cookies.txt for subscriber-only sites. Empty = send no cookies at all.
+  cookies_file: '',
   openrouter: { enabled: false, api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60, data_collection: 'allow' },
   properties: ['title', 'source', 'author', 'published', 'created', 'description', 'tags', 'read', 'reading time'],
   custom_properties: {},
@@ -97,6 +100,7 @@ export function validateConfig(value: unknown): Config {
   };
   string(c.articles_dir, 'articles_dir');
   if (!(c.articles_dir as string).trim()) fail('articles_dir', 'a non-empty path');
+  string(c.cookies_file, 'cookies_file');
   number(c.reading_wpm, 'reading_wpm', 1, 10000);
   number(c.timeout, 'timeout', 1, 600);
   for (const k of ['include_images', 'make_html', 'make_epub', 'progress', 'allow_private']) {
@@ -154,6 +158,11 @@ progress: true
 
 # Allow local/intranet destinations only when you intend to clip them.
 allow_private: false
+
+# Netscape cookies.txt (exported from a logged-in browser) for sites that serve the full
+# text only to subscribers. Cookies are sent to the host they belong to and nowhere else.
+# Empty = send no cookies. --cookies FILE overrides this for one run.
+cookies_file: ""
 
 # OpenRouter receives up to 15000 characters of the article when explicitly enabled.
 # An API key alone does not enable it. Prefer OPENROUTER_API_KEY in the environment.

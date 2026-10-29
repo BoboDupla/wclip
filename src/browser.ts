@@ -2,7 +2,8 @@
 // HeadlessChrome UA: this is for rendering, not impersonating a desktop browser.
 import { statSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
-import type { APIResponse, Browser } from 'playwright-core';
+import type { APIResponse, Browser, BrowserContext } from 'playwright-core';
+import type { CookieJar } from './cookies.js';
 import type { Page } from './fetch.js';
 import { checkBrowserTarget, NetworkPolicyError, type RequestPolicy } from './network-policy.js';
 import { envVar, warn } from './util.js';
@@ -33,8 +34,27 @@ function onPath(name: string): string | null {
   return null;
 }
 
+// Subscriber cookies go into the browser context, not into route headers: Chromium then
+// applies its own per-host and Secure rules, and the route handler never forwards them
+// across origins. Only cookies matching the starting URL are loaded at all.
+async function applyCookies(context: BrowserContext, url: string, cookies: CookieJar): Promise<void> {
+  const matched = cookies.matches(url);
+  const host = new URL(url).hostname;
+  if (!matched.length) {
+    warn(`headless browser: no cookie in the file matches ${host}`);
+    return;
+  }
+  await context.addCookies(matched.map(c => ({
+    name: c.name, value: c.value,
+    domain: c.domain === '*' ? host : c.domain,
+    path: c.path, secure: c.secure,
+    expires: c.expires > 0 ? c.expires : -1, // Playwright's sentinel for a session cookie
+  })));
+}
+
 export async function fetchWithBrowser(url: string, executable: string, timeoutSec: number,
-                                       policy: Pick<RequestPolicy, 'allowPrivate'> = {}): Promise<Page | null> {
+                                       policy: Pick<RequestPolicy, 'allowPrivate'> = {},
+                                       cookies?: CookieJar): Promise<Page | null> {
   if (!Number.isFinite(timeoutSec) || timeoutSec <= 0 || timeoutSec * 1000 > 0x7fffffff) {
     warn('headless browser: timeout must be a positive, finite number of seconds');
     return null;
@@ -87,6 +107,7 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     }
     if (!browser) throw new Error('no sandboxed Chromium could be started; install Chromium with working sandbox support or set browser.executable.\n  ' + errors.join('\n  '));
     const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: 'block' });
+    if (cookies) await applyCookies(context, initial.href, cookies);
     const page = await context.newPage();
     let navigationRedirect: string | undefined;
     // WebSockets are not needed for an article snapshot. Block the handshake

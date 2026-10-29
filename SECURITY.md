@@ -75,6 +75,12 @@ and assume its CLI flags provide service-grade SSRF containment.
 
 - Config fields and ranges are validated, dangerous prototype keys are rejected, and custom
   YAML keys are escaped. Config contents must still be trusted.
+- A cookies file (`--cookies FILE`, `cookies_file`) is a credential. It is read at 1 MiB max,
+  names and values that could break out of a header are dropped, and no value is ever printed:
+  diagnostics carry a count or a host name only. Cookies are attached per request hop from the
+  jar, so a redirect to another host receives none of them, and the jar is never passed as a
+  request header to image downloads. Passing `--cookies` on a command line exposes only the
+  path, never the tokens; the file itself is as sensitive as a saved password.
 - New config files use mode 0600 and newly created config directories use mode 0700. Setup
   does not request API keys on an echoing prompt. Prefer `OPENROUTER_API_KEY` in the environment;
   do not put secrets in command-line arguments.

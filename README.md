@@ -92,6 +92,7 @@ wclip --init-config              write a default config file
   --browser                      fetch with the headless browser right away
   --no-browser                   never use the headless browser
   --html FILE                    extract from saved HTML (20 MiB limit); URL is the source
+  --cookies FILE                  send subscriber cookies (Netscape cookies.txt) to that host
   --llm                          explicitly send article text to OpenRouter for this run
   --no-llm                       never send article text to OpenRouter
   --allow-private                allow local/intranet page and image requests
@@ -151,6 +152,38 @@ Local/intranet destinations and HTTPS-to-HTTP redirects are blocked by default. 
 enabled and fails if that is unavailable; it is not a network-isolation boundary. See
 [SECURITY.md](SECURITY.md) for the threat model, limits and remaining browser-network caveats.
 
+## Paywalled pages
+
+A paywall is not a bug in the fetcher, and a 200 is not proof of a whole article. Two things
+make that visible instead of silently producing a two-paragraph note:
+
+- A non-2xx answer names the wall: `warning: honest UA: HTTP 401 from <url> (login or
+  subscription required)`, and the final error repeats it with what to do next.
+- Extraction that ends in a rights notice or a subscribe box, under 400 words, is reported as
+  `warning: incomplete article: the body ends with a copyright notice after 187 words`.
+  Long articles and short posts without those markers are left alone. This applies to `--html`
+  as well: a saved page can be a teaser.
+
+If you have a subscription, export cookies for that site as a Netscape `cookies.txt` (curl, most
+browser extensions, or `--cookies-from-browser` in yt-dlp produce that format) and point at it:
+
+```sh
+wclip https://www.example.com/paid-story --cookies ~/.config/wclip/cookies.txt
+```
+
+What the cookie jar will and will not do:
+
+- A cookie is only sent to the host it belongs to; the subdomain flag in the file is honoured,
+  and a bare `name=value` line applies to any host (use that deliberately).
+- A redirect to a different host drops the cookies: each hop's header is rebuilt from the jar.
+- `Secure` cookies are not sent over HTTP, expired ones are dropped, and path prefixes apply.
+- The headless browser loads them into a fresh context, so Chromium's own rules apply there.
+- Image downloads never carry them, and `--html` ignores them (a saved file needs no network).
+- Values are never logged. Diagnostics report a host name at most, e.g.
+  `no cookie in the file matches www.example.com; fetching unauthenticated`.
+
+No cookies are sent unless you ask: `cookies_file` is empty by default.
+
 ## Config
 
 `~/.config/wclip/config.yaml` (or `$WCLIP_CONFIG`).
@@ -161,6 +194,7 @@ articles_dir: ~/articles   # notes and their html/ and epub/ land here (default)
 reading_wpm: 200
 progress: true        # live status line on a terminal (false = plain lines)
 allow_private: false
+cookies_file: ""      # Netscape cookies.txt for subscriber sites; empty = send none
 openrouter:
   enabled: false
   api_key: ""         # prefer OPENROUTER_API_KEY in the environment
