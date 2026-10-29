@@ -11,7 +11,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "defuddle": "0.19.5",
+    "defuddle": "0.19.6",
     "fflate": "^0.8.3",
     "linkedom": "0.18.13",
     "marked": "^18.1.1",
