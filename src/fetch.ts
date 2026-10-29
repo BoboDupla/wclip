@@ -19,7 +19,7 @@ import {
 import { warn } from './util.js';
 export { DEFAULT_MAX_BYTES, DEFAULT_MAX_DECODED_BYTES, type RequestPolicy } from './network-policy.js';
 
-export const VERSION = '0.5.2';
+export const VERSION = '0.6.0';
 export const HONEST_UA = `wclip/${VERSION} (personal article clipper)`;
 export const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
 

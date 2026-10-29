@@ -1,6 +1,6 @@
 {
   "name": "wclip",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Clip web articles to Markdown notes with YAML frontmatter (Defuddle-based).",
   "scripts": {
     "build": "tsc",
