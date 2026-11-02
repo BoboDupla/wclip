@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extract } from '../dist/extract.js';
+import { extract, separateCaptionLabels } from '../dist/extract.js';
 import { GOLDEN, slugs, fixtureHtml, fixtureUrl, extractOptions } from './helpers.mjs';
 
 const results = {};
@@ -104,6 +104,28 @@ page as a stub of navigation links.</p>
   const a = await extract(html, 'https://example.org/news/grid', { boilerplate: {}, includeImages: true });
   assert.equal(a.content.split('\n')[0], `**${lede.replace('Nature Energy', '*Nature Energy*')}**`);
   assert.match(a.content, /60 seconds/);
+});
+
+test('a caption welded onto the sentence above it gets its own paragraph', () => {
+  assert.equal(
+    separateCaptionLabels('The grid dips every minute.Credit: Charnchai Guoy | iStock / Getty Images Plus'),
+    'The grid dips every minute.\n\nCredit: Charnchai Guoy | iStock / Getty Images Plus');
+  // German labels, a byline-style caption and a closing quote after the punctuation.
+  assert.equal(separateCaptionLabels('Die Frequenz sinkt jede Minute.Foto: Forschungszentrum Jülich'),
+    'Die Frequenz sinkt jede Minute.\n\nFoto: Forschungszentrum Jülich');
+  assert.equal(separateCaptionLabels('It dips every minute.Photo by Regine Panknin'),
+    'It dips every minute.\n\nPhoto by Regine Panknin');
+  assert.equal(separateCaptionLabels('“It dips every minute.”Quelle: Tennet'),
+    '“It dips every minute.”\n\nQuelle: Tennet');
+});
+
+test('prose that merely mentions a caption label is not split', () => {
+  for (const md of [
+    'He paid by card. Credit: the invoice was never sent.', // spaced label is ordinary prose
+    'The credit: line was empty.',
+    'See fig. 3 for the comparison.',
+    'Version 1.2.Photo graphs are elsewhere.', // "Photo graphs" is not a caption label
+  ]) assert.equal(separateCaptionLabels(md), md);
 });
 
 test('include_images: false drops images', async () => {

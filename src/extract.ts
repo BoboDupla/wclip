@@ -120,14 +120,21 @@ const decode = (s: string) =>
     .replace(/&#(\d+);/g, (_, d: string) => fromCode(Number.parseInt(d, 10)))
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
+// Fix 7: a figure whose image Defuddle drops loses the block boundary with its caption, so the
+// caption is welded onto the last sentence ("...for AI training.Credit: iStock / Getty"). The text
+// is all there, only the separator is missing. The tell is a caption label following sentence
+// punctuation with no space at all: "wording. Credit: ..." is ordinary prose and stays put.
+const CAPTION_LABELS = 'Credit|Caption|Source|Photo|Image|Picture|Illustration|Figure|Screenshot|Graphic|Video|Bild|Bildquelle|Foto|Quelle|Grafik|Abbildung';
+const CAPTION_LABEL = String.raw`(?:(?:${CAPTION_LABELS})\s*:|(?:Photo|Image|Picture|Illustration|Screenshot|Video)\s+by\b)`;
+
+export function separateCaptionLabels(md: string): string {
+  return md.replace(new RegExp(String.raw`([.!?]["”')\]]?)(?=${CAPTION_LABEL})`, 'g'), '$1\n\n');
+}
+
 function postprocess(md: string): string {
   // Defuddle escapes "<trait>" but not "<trait\_description>"; unescaped, it reads as an HTML tag and vanishes.
   md = md.replace(/(^|[^\\])<(\/?[a-z][a-z0-9]*(?:\\_[a-z0-9]+)+)>/gm, '$1\\<$2>');
-  // Fix 7: a figure whose image Defuddle drops loses the block boundary with its caption, so the
-  // caption is welded onto the last sentence ("...for AI training.Credit: iStock / Getty"). The
-  // text is all there; only the separator is missing. Restore a paragraph break before a caption
-  // label rather than leaving the two run together.
-  md = md.replace(/([.!?])(?=(?:Credit|Caption|Source|Photo|Image|Illustration|Figure|Screenshot|Graphic|Video)\s*:)/g, '$1\n\n');
+  md = separateCaptionLabels(md);
   // With content patterns off, Defuddle leaves an identical paragraph twice in a row
   // (Ars image credits). It also leaves a lede that repeats the page's description, which
   // is what we want: many sites put the opening paragraph in the description verbatim, and
