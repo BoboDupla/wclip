@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+
+  <title>Let me ch... - Alex Gusev</title>
+
+  
+  
+  <meta name="description" content="That morning I woke up at 6:58, two minutes before the alarm. I lay there and waited for it to ring. And it rang. We both did our jobs.
+I still don&rsquo;t know why I remember it in such detail. I used to forget what I&rsquo;d had for dinner the night before. And now I remember the whole morning minute by minute, as if someone had laid it out on a table and labeled every piece. Apparently I have a lot of free time now." />
+  <meta name="author" content="Alex Gusev" />
+  
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilex:wght@400..700&display=swap" />
+  
+  <link rel="stylesheet" href="/terminal.min.004902b24ae2b1053ac4edfd9c7177ab3061df145db1d20faf8e71a5f40e2fbe.css" />
+  
+
+  
+  <script>
+    (() => {
+      const system = matchMedia('(prefers-color-scheme: dark)');
+      const apply = () => {
+        const saved = localStorage.getItem('theme');
+        const theme = saved || (system.matches ? 'dark' : 'light');
+        
+        document.documentElement.style.colorScheme = saved || '';
+        const toggle = document.getElementById('theme-switch');
+        if (!toggle) return;
+        toggle.hidden = false;
+        toggle.querySelectorAll('[data-theme]').forEach((b) => {
+          const current = b.dataset.theme === theme;
+          b.setAttribute('aria-pressed', current);
+          if (current) toggle.querySelector('.menu__trigger span').textContent = b.textContent;
+        });
+      };
+      apply();
+      document.addEventListener('DOMContentLoaded', apply);
+      system.addEventListener('change', apply);
+      document.addEventListener('click', (e) => {
+        const b = e.target.closest('#theme-switch [data-theme]');
+        if (!b) return;
+        localStorage.setItem('theme', b.dataset.theme);
+        apply();
+        b.closest('details').open = false;
+      });
+    })();
+  </script>
+
+  <link rel="icon" href="https://blog.alxgsv.com/favicon.svg" />
+  <link rel="apple-touch-icon" href="https://blog.alxgsv.com/apple-touch-icon.png" />
+
+  <meta name="generator" content="Hugo 0.169.0">
+
+  
+
+  
+  <meta property="og:url" content="https://blog.alxgsv.com/let-me-check/">
+	<meta property="og:site_name" content="Alex Gusev">
+	<meta property="og:title" content="Let me ch...">
+	<meta property="og:description" content="That morning I woke up at 6:58, two minutes before the alarm. I lay there and waited for it to ring. And it rang. We both did our jobs.
+I still don’t know why I remember it in such detail. I used to forget what I’d had for dinner the night before. And now I remember the whole morning minute by minute, as if someone had laid it out on a table and labeled every piece. Apparently I have a lot of free time now.">
+	<meta property="og:locale" content="en">
+	<meta property="og:type" content="article">
+		<meta property="article:section" content="posts">
+		<meta property="article:published_time" content="2026-11-02T22:50:00+06:00">
+		<meta property="article:modified_time" content="2026-11-02T22:50:00+06:00">
+		<meta property="og:image" content="https://blog.alxgsv.com/og-image.png">
+
+  
+	<meta itemprop="name" content="Let me ch...">
+	<meta itemprop="description" content="That morning I woke up at 6:58, two minutes before the alarm. I lay there and waited for it to ring. And it rang. We both did our jobs.
+I still don’t know why I remember it in such detail. I used to forget what I’d had for dinner the night before. And now I remember the whole morning minute by minute, as if someone had laid it out on a table and labeled every piece. Apparently I have a lot of free time now.">
+	<meta itemprop="datePublished" content="2026-11-02T22:50:00+06:00">
+	<meta itemprop="dateModified" content="2026-11-02T22:50:00+06:00">
+	<meta itemprop="wordCount" content="1993">
+	<meta itemprop="image" content="https://blog.alxgsv.com/og-image.png">
+  
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:image" content="https://blog.alxgsv.com/og-image.png">
+	<meta name="twitter:title" content="Let me ch...">
+	<meta name="twitter:description" content="That morning I woke up at 6:58, two minutes before the alarm. I lay there and waited for it to ring. And it rang. We both did our jobs.
+I still don’t know why I remember it in such detail. I used to forget what I’d had for dinner the night before. And now I remember the whole morning minute by minute, as if someone had laid it out on a table and labeled every piece. Apparently I have a lot of free time now.">
+
+  
+
+  <script src="https://cdn.counter.dev/script.js" data-id="acc29910-7a0f-482b-b5c1-5a39287f3cbc" data-utcoffset="6"></script>
+</head>
+
+  <body>
+    <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="/">
+        <div class="logo">Alex Gusev&#39;s Blog</div>
+      </a>
+    </div>
+    <div class="header__menus">
+      <details id="theme-switch" class="menu menu--theme-selector" name="header-menu" hidden>
+  <summary class="menu__trigger" title="Theme"><span></span>&nbsp;▾</summary>
+  <ul class="menu__dropdown" aria-label="Theme">
+    <li><button type="button" data-theme="light">Light</button></li>
+    <li><button type="button" data-theme="dark">Dark</button></li>
+  </ul>
+</details>
+
+      <details class="menu menu--language-selector" name="header-menu">
+        <summary class="menu__trigger">English&nbsp;▾</summary>
+        <ul class="menu__dropdown">
+          
+          
+          
+          
+          
+          
+          <li><a href="/let-me-check/" hreflang="en" lang="en">English</a></li>
+          
+          
+          
+          
+          
+          
+          <li><a href="/ky/let-me-check/" hreflang="ky" lang="ky">Кыргызча</a></li>
+          
+          
+          
+          
+          
+          
+          <li><a href="/ru/let-me-check/" hreflang="ru" lang="ru">Русский</a></li>
+          
+        </ul>
+      </details>
+    </div>
+  </div>
+</header>
+
+    
+<article class="post">
+  <h1 class="post-title">
+    <a href="/let-me-check/">Let me ch...</a>
+  </h1>
+  <div class="post-meta">
+    <time class="post-date">2026-11-02</time>
+  </div>
+  <div class="post-content">
+    <pre>
+That morning I woke up at 6:58, two minutes before the alarm. I lay there and waited for it to ring. And it rang. We both did our jobs.
+
+I still don&#39;t know why I remember it in such detail. I used to forget what I&#39;d had for dinner the night before. And now I remember the whole morning minute by minute, as if someone had laid it out on a table and labeled every piece. Apparently I have a lot of free time now.
+
+The speaker in the kitchen said: &#34;Good morning. Today it&#39;s plus three, cloudy, forty percent chance of precipitation.&#34; I never understood what forty percent of rain meant. Will it rain over forty percent of the city? Will it rain for forty percent of the day? Or does the speaker just not know and is too shy to say so? I liked the third option best. It made the speaker a bit like me.
+
+I made two pieces of toast. The left one burned. The left one in my toaster always burns; my toaster has a favorite side. And that was the only thing I was sure of that morning. Then I ironed my shirt. I always iron a shirt when I don&#39;t know what&#39;s going to happen next. With a shirt, at least, everything is defined: here&#39;s the collar, here are the sleeves, here&#39;s the crease that shouldn&#39;t be there.
+
+And there was a lot I didn&#39;t know.
+
+On Monday my manager wrote in the team chat: &#34;On Friday we&#39;ll discuss roles.&#34; No emoji. For three days I wondered what my role was. In the theater it would have been simpler. There are leads, there are supporting parts, and there&#39;s the butler who walks on to say &#34;Dinner is served.&#34; I was counting on &#34;Dinner is served.&#34; But then I remembered that at my place that role had long been played by the speaker.
+
+A year ago I wrote code. Then I started writing to the agent about what code was needed. Then the agent started asking me what code was needed, and I started answering. My employment record says &#34;lead developer.&#34; Whom I was leading, and where, was no longer very clear. If anything, the agent was leading me, and I walked alongside and sometimes said: &#34;Yes, let&#39;s do it that way.&#34;
+
+They said machines would take the boring work first. And they started with the interesting work. The boring part, it seems, was left to us: waiting, checking, and carrying a phone around.
+
+But that morning I wasn&#39;t bored. Not at all.
+
+I worked at a service that delivers flowers to people who forgot to buy flowers. Most orders come in the morning. People remember anniversaries on the metro, between two stations, and order right away. And for three weeks now, every morning at 8:14, orders had been disappearing. Not all of them, three or four. The money was charged, but the flowers went nowhere. As if someone took the order off the shelf and quietly carried it away.
+
+We had been searching for three weeks. Me, the agent, sometimes Sveta from the team next door. And during the night the agent wrote to me: &#34;I think I&#39;ve got it. The server and the warehouse keep different time. The difference is about a minute. An order that falls into that minute is considered sent by the server and not yet received by the warehouse. Both are right, each by its own clock.&#34;
+
+I read this at breakfast and almost choked on my toast. The left one.
+
+It was beautiful. The agent called it desynchronization. I called it the no-man&#39;s minute: a minute that belongs to everyone and to no one. It seemed clearer to me that way. The agent politely agreed. But it always politely agrees, so I still don&#39;t know whether it was clearer.
+
+All that was left was to check. The agent asked me to open the order queue at 8:14 and see it with my own eyes. It couldn&#39;t do it itself: it had no access to the warehouse. For now.
+
+The gate to our courtyard recognizes residents by their faces. In my hat, it didn&#39;t recognize me. I took off the hat, and it opened. I thought that in a hat I sometimes don&#39;t recognize myself either, so it was only fair.
+
+Our courtyard is square. If you stand in the middle, everything is symmetrical: two birches, two benches, two trash bins, a pink building on the left, a pink building on the right. The only thing that broke the symmetry was an old man in a beige coat with a dachshund. There was just one of him. He came out with her every day at 7:50, and I never once saw him late. The dachshund&#39;s name was Spitz. That was funny exactly once, and after that it was just a name.
+
+&#34;They promised forty percent,&#34; the old man said.
+
+&#34;Yes,&#34; I said. &#34;So did the speaker.&#34;
+
+&#34;I look out the window. The window doesn&#39;t lie.&#34;
+
+I looked at the sky. It was an even gray, without any percentages. And Spitz looked at me. I think he didn&#39;t really trust the speaker either.
+
+In March, Tanya left me. We had lived together for four years. She said I was always &#34;somewhere other than here.&#34; I asked: &#34;Where, then?&#34; She didn&#39;t answer. I think she didn&#39;t know either. It was one more thing nobody understood the workings of. Back then there were more and more things like that.
+
+When I was a child there were no such things. Or rather, there were, but there was always a grown-up who knew. I thought a little green man lived inside the traffic light. He sat in there and decided for himself when you could cross. And Dad explained to me that inside there was a relay and a timer. I was upset, but I believed him. I think that was the last time grown-ups knew how everything worked. I couldn&#39;t explain to a child anymore who switches the traffic lights. I don&#39;t have a child, so for now it&#39;s not a problem.
+
+&#34;For now&#34; is a good phrase. I realized that in the spring, when my friend Gosha moved to a village to make cheese. For fifteen years Gosha had drawn icons for apps, and then he stopped. I asked him on the phone: &#34;Why cheese?&#34; He said: &#34;Nobody&#39;s going to make cheese for me. For now.&#34; I asked: &#34;For now?&#34; He said: &#34;For now.&#34;
+
+And hung up. Afterwards I thought for a long time about what exactly he had told me. Because &#34;for now&#34; means two things at once: &#34;so far&#34; and &#34;goodbye,&#34; as in &#34;bye for now.&#34; I&#39;d never noticed that before.
+
+The café on the corner has a mint-green door with a little bell above it. Behind the counter stood Ulyana (I know that from her name tag). She asked: &#34;The usual?&#34; I said: &#34;Yes.&#34; And I never figured out whether she remembers me or the register prompts her. It felt awkward to ask. If it&#39;s the register, that&#39;s a little hurtful. If it&#39;s her, then I should have remembered something about her too, besides the name tag.
+
+While Ulyana was making the coffee, I thought that if you cut our building in half like a cake, you&#39;d see it: on every floor, in every kitchen, someone is standing with a phone and asking something. The woman on the fifth floor, about her blood pressure. The boy on the ninth, about fractions (I heard him in the elevator dictating a problem to his phone). The old man with the dachshund, no, the old man looks out the window. Me on the seventh, about orders. And everyone gets an answer. Politely, always formally. Whether it&#39;s right or not, everyone decides for themselves.
+
+At 8:09 I came out onto the avenue and opened the chat.
+
+&#34;Good morning,&#34; the agent wrote. &#34;Five minutes to go. Will you be watching?&#34;
+
+&#34;Walking to the metro,&#34; I replied. &#34;Opening the queue.&#34;
+
+I walked and looked at my phone. White taxis moved along the avenue one after another, like beads on a string. There are plenty of them in the city, with drivers and without. You can&#39;t tell them apart until you look inside. And there&#39;s no time to look.
+
+8:13. There were nine orders in the queue. Three of them had just come in.
+
+&#34;There they are,&#34; the agent wrote. &#34;Watch those three. Here comes the interesting part.&#34;
+
+I reached the crosswalk by the pharmacy. A green cross glowed above the pharmacy. At the curb stood a delivery robot, a white box on six wheels with a yellow flag. It stood very straight, as if someone had placed it with a ruler. But at the time I didn&#39;t wonder why it was standing still.
+
+8:13:40. The three orders were still there.
+
+I started typing: &#34;I see them. Let me ch&#34;
+
+Out of the corner of my eye I saw green. It could have been the traffic light. It could have been the cross above the pharmacy. Now I think it was the cross.
+
+I think I did look left.
+
+I don&#39;t remember the impact. I remember the phone flying out of my hand and, for a while, flying separately from me. You know how it is when you drop your phone? While it&#39;s in the air, you have time for exactly one thought. Usually it&#39;s &#34;not screen-down.&#34;
+
+I thought: &#34;Damn. We didn&#39;t finish.&#34;
+
+Not &#34;Mom.&#34; Not &#34;it hurts.&#34; Not even &#34;car.&#34; I thought that the message had been left in the input field, &#34;Let me ch,&#34; without a period. That in twenty seconds the three orders would either vanish or not, and I wouldn&#39;t see it. That we had been searching for three weeks and were one minute from the answer. That very minute, the no-man&#39;s one.
+
+I didn&#39;t feel sorry for the agent. It won&#39;t be offended; it doesn&#39;t know how. And it doesn&#39;t know how to wait, either. I was the one waiting. I felt sorry for the task. You know how it goes: one word left in the crossword, and you already know the first letters. That&#39;s it. I knew the first letters.
+
+I never got around to thinking that I was dying. I didn&#39;t make it to that thought. Maybe that&#39;s for the best. I wouldn&#39;t have known what to do with it anyway.
+
+Then everything stopped. Like on a postcard. A woman with a stroller, a courier in a yellow jacket, a man with two bags from the bakery, a white taxi with its hazard lights on. Everyone stood perfectly still, as if someone had arranged them. Then the light turned green. The real one. And the robot set off. It carefully went around my phone and rolled on. It had a delivery to make.
+
+I&#39;m not angry with it. It had a task. Nobody understands it better than I do.
+
+I used to think the dead at least know more than the living. Nope. You can&#39;t see as much from here as they promise.
+
+I don&#39;t know who was driving. Or whether anyone was.
+
+I don&#39;t know what roles they wanted to discuss on Friday.
+
+I don&#39;t know whether the three orders disappeared that morning. If they did, somewhere in the city three people never got their flowers. The very ones someone remembered on the metro, between two stations.
+
+I don&#39;t know whether anyone finished my message. Sveta? The agent itself, once they gave it access to the warehouse? If they did.
+
+Tanya used to say I was always somewhere other than here. Now it&#39;s true. Only I still don&#39;t know where. Sometimes I think it&#39;s in that very minute. The server thinks I&#39;ve been sent. The warehouse thinks I haven&#39;t been received yet. And both are right, each by its own clock.
+
+Gosha would probably say this is &#34;for now.&#34; I keep wondering in which of the two meanings.
+
+For now.
+</pre>
+  </div>
+  <section class="about-author">
+  <div class="about-author__title">
+    <span class="about-author__title-h">About the author</span>
+    <hr />
+  </div>
+  <p>Alex Gusev is one of two people in the world who have seen Vestigius Terrentius at work. Alex is interested in everything to do with engineering, literature, people and society. Once, at the Nürburgring, he nearly collided with Kimi Räikkönen. Alex is now the CTO of <a href="https://uploadcare.com/">Uploadcare</a>.</p>
+</section>
+
+  
+
+<section class="other-posts">
+  <div class="other-posts__title">
+    <span class="other-posts__title-h">Other posts</span>
+    <hr />
+  </div>
+  <ul class="other-posts__list">
+    
+    <li><time class="other-posts__date">2026-10-24</time><a href="/challenge-is-gone/">Challenge Is Gone</a></li>
+    
+    <li><time class="other-posts__date">2023-07-23</time><a href="/cloudflare-email-routing/">Cloudflare Email Routing</a></li>
+    
+    <li><time class="other-posts__date">2023-06-13</time><a href="/yet-another-ruby-parser/">Yet Another Ruby Parser</a></li>
+    
+    <li><time class="other-posts__date">2023-03-14</time><a href="/everything-everywhere-all-at-once/">Everything Everywhere All at Once</a></li>
+    
+    <li><time class="other-posts__date">2023-03-10</time><a href="/obra-dinn-ost/">(no subject)</a></li>
+    
+  </ul>
+</section>
+
+
+</article>
+
+    <footer class="footer">
+  <nav class="navigation-menu">
+    <ul class="navigation-menu__inner">
+      <li><a href="/index.xml">RSS</a></li>
+      <li><a href="https://uploadcare.com/">Uploadcare</a></li>
+      <li><a href="https://lettercarta.com/">Lettercarta</a></li>
+      <li><a href="https://kvistly.com/">Kvistly</a></li>
+      <li><a href="https://twitter.com/alxgsv">Twitter</a></li>
+    </ul>
+  </nav>
+  <div class="copyright">
+    <span>© 2026 Powered by <a href="https://gohugo.io">Hugo</a></span>
+    <span>:: <a href="https://github.com/panr/hugo-theme-terminal">Theme</a> made by <a href="https://github.com/panr">panr</a></span>
+  </div>
+</footer>
+
+  </body>
+</html>
