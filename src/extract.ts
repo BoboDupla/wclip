@@ -120,19 +120,21 @@ const decode = (s: string) =>
     .replace(/&#(\d+);/g, (_, d: string) => fromCode(Number.parseInt(d, 10)))
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
-function postprocess(md: string, description: string): string {
+function postprocess(md: string): string {
   // Defuddle escapes "<trait>" but not "<trait\_description>"; unescaped, it reads as an HTML tag and vanishes.
   md = md.replace(/(^|[^\\])<(\/?[a-z][a-z0-9]*(?:\\_[a-z0-9]+)+)>/gm, '$1\\<$2>');
-  // With content patterns off, Defuddle no longer drops a lede that repeats the description,
-  // and it leaves an identical paragraph twice in a row (Ars image credits).
+  // Fix 7: a figure whose image Defuddle drops loses the block boundary with its caption, so the
+  // caption is welded onto the last sentence ("...for AI training.Credit: iStock / Getty"). The
+  // text is all there; only the separator is missing. Restore a paragraph break before a caption
+  // label rather than leaving the two run together.
+  md = md.replace(/([.!?])(?=(?:Credit|Caption|Source|Photo|Image|Illustration|Figure|Screenshot|Graphic|Video)\s*:)/g, '$1\n\n');
+  // With content patterns off, Defuddle leaves an identical paragraph twice in a row
+  // (Ars image credits). It also leaves a lede that repeats the page's description, which
+  // is what we want: many sites put the opening paragraph in the description verbatim, and
+  // dropping it deleted real prose. Slicing it off by `description.length` cut midway through
+  // the Markdown instead (the paragraph carries ** and * markers the plain-text description
+  // does not), leaving a fragment like "gy*.**" at the top of the note.
   const paras = md.split(/\n\s*\n/).filter((p, i, a) => i === 0 || norm(p) !== norm(a[i - 1]));
-  const i = paras.findIndex(p => norm(p).length > 0);
-  const d = norm(description);
-  if (i >= 0 && d && norm(paras[i]).startsWith(d)) {
-    const rest = paras[i].slice(description.length).trim();
-    if (norm(paras[i]) === d || norm(rest) === norm(paras[i]).slice(d.length).trim()) paras[i] = rest;
-    if (!paras[i]) paras.splice(i, 1);
-  }
   // Fix 3: parse raw HTML chunks once, rather than retrying an unbounded regex
   // at every unmatched <math>. Never decode annotation text into HTML markup.
   return sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
@@ -258,7 +260,7 @@ export async function extract(html: string, url: string, opts: ExtractOptions): 
     removeImages: !opts.includeImages,
   });
   const meta = await fixMeta(r, url, document as unknown as Document, opts);
-  let content = postprocess(r.content ?? '', meta.description);
+  let content = postprocess(r.content ?? '');
   if (opts.includeImages) content = restoreLeadImage(content, ogImage, lead);
   // C0/C1 controls and bidi embeddings are not article content: they corrupt --stdout,
   // terminals and EPUB XHTML, and can reorder visible text (Trojan Source). U+200E,

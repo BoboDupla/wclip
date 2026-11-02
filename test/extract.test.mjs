@@ -84,6 +84,28 @@ test('boilerplate selectors come from config; a bad selector is skipped, not fat
   assert.doesNotMatch(a.content, /^> /m);
 });
 
+test('lede that repeats the meta description is kept whole, not cut to a fragment', async () => {
+  // A standfirst that the page also puts in <meta name="description"> must survive: dropping it
+  // deleted real prose, and slicing the Markdown by the description's plain-text length (the
+  // paragraph carries ** and * the description does not) left "gy*.**" at the top of the note.
+  const lede = 'Why do our grids show a brief spike in electricity demand every minute? A team has now '
+    + 'demonstrated that this is due to regular power checks carried out by large-scale battery storage '
+    + 'systems, as the team reports in an article published in Nature Energy.';
+  const html = `<!doctype html><html><head><title>Grid</title>
+<meta name="description" content="${lede}"><meta property="og:description" content="${lede}"></head>
+<body><article><h1>Grid</h1>
+<p><b>${lede.replace('Nature Energy', '<i>Nature Energy</i>')}</b></p>
+<p>Tennet Germany, the largest transmission system operator in Germany, has observed over several years
+that the frequency in the European power grid dips briefly every 60 seconds, for reasons nobody could
+explain until now.</p>
+<p>Third paragraph, long enough that content extraction keeps the article body and does not treat this
+page as a stub of navigation links.</p>
+</article></body></html>`;
+  const a = await extract(html, 'https://example.org/news/grid', { boilerplate: {}, includeImages: true });
+  assert.equal(a.content.split('\n')[0], `**${lede.replace('Nature Energy', '*Nature Energy*')}**`);
+  assert.match(a.content, /60 seconds/);
+});
+
 test('include_images: false drops images', async () => {
   const slug = 'ars-meta-yandex';
   const a = await extract(fixtureHtml(slug), fixtureUrl(slug), { ...extractOptions, includeImages: false });
