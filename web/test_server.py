@@ -10,7 +10,10 @@ started on an ephemeral port, because the interesting behaviour (response
 headers, cookie handling, CL validation) lives in the request path.
 """
 import base64
+import contextlib
 import http.client
+import io
+import queue
 import importlib.util
 import os
 import json
@@ -304,9 +307,15 @@ class Sessions(unittest.TestCase):
         self.assertIsNone(srv.read_session(token, "tester", "sekrit", 1))
 
     def test_sessions_after_round_trips_through_auth_file(self):
-        srv.write_auth({"user": "tester", "password_hash": "h", "secret": "s",
-                        "session_days": "1", "sessions_after": "12345"})
-        self.assertEqual(srv.load_auth().get("sessions_after"), "12345")
+        saved = srv.load_auth()
+        try:
+            srv.write_auth({"user": "tester", "password_hash": "h", "secret": "s",
+                            "session_days": "1", "sessions_after": "12345"})
+            self.assertEqual(srv.load_auth().get("sessions_after"), "12345")
+        finally:
+            # This file is shared with every other test: leaving "h" as the hash
+            # would break the next test that logs in.
+            srv.write_auth(saved)
 
 
 class RunJob(unittest.TestCase):
@@ -370,6 +379,90 @@ class RunJob(unittest.TestCase):
         job = self.run_job()
         self.assertEqual(job["state"], "failed")
         self.assertIn("no JSON result", job["error"])
+
+
+class RedirectSafety(unittest.TestCase):
+    def test_safe_next_rejects_control_characters(self):
+        for bad in ("/articles\r\nX-Probe: yes", "/a\tb", "/a\x00b", "/a\x7fb", "/a\nb"):
+            self.assertEqual(srv.safe_next(bad, "/DEF"), "/DEF", repr(bad))
+
+    def test_login_next_never_injects_a_header(self):
+        body = ("user=tester&password=%s&next=%%2Farticles%%0D%%0AX-Wclip-Probe%%3A%%20yes"
+                % PASSWORD.replace(" ", "+"))
+        status, headers, _ = request("POST", "/login", body)
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/articles")
+        self.assertNotIn("X-Wclip-Probe", headers)
+
+    def test_toggle_back_never_injects_a_header(self):
+        cookie = login()
+        status, headers, _ = request(
+            "GET", "/toggle?stem=%s&back=%%2Farticles%%0D%%0AZ-Wclip-Probe%%3A%%20yes" % STEM,
+            cookie=cookie)
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/articles")
+        self.assertNotIn("Z-Wclip-Probe", headers)
+
+
+class ViewContainment(unittest.TestCase):
+    def test_view_refuses_a_rendition_symlinked_outside(self):
+        note = os.path.join(ARTICLES, "leak.md")
+        with open(note, "w", encoding="utf-8") as f:
+            f.write("---\ntitle: Leak\ncreated: 2026-11-05\nread: false\n---\n\nBody.\n")
+        link = os.path.join(ARTICLES, "html", "leak.html")
+        os.symlink("/etc/passwd", link)
+        try:
+            cookie = login()
+            status, _, data = request("GET", "/article/leak/view", cookie=cookie)
+            self.assertEqual(status, 404)
+            self.assertNotIn(b"root:", data)
+        finally:
+            os.unlink(link)
+            os.unlink(note)
+
+
+class PasswordChangeKeepsRevocation(unittest.TestCase):
+    def test_cutoff_survives_a_password_change(self):
+        auth = srv.load_auth()
+        auth["sessions_after"] = "12345"
+        srv.write_auth(auth)
+        real = srv.getpass.getpass
+        srv.getpass.getpass = lambda prompt="": PASSWORD
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = srv.set_password_cli(["--set-user", "tester"])
+        finally:
+            srv.getpass.getpass = real
+        self.assertEqual(rc, 0)
+        self.assertEqual(srv.load_auth().get("sessions_after"), "12345")
+
+
+class BoundedAdmission(unittest.TestCase):
+    def test_render_queue_is_bounded(self):
+        self.assertEqual(srv.RENDER_Q.maxsize, 8)
+
+    def test_ensure_rendition_reports_a_full_queue(self):
+        saved_q, saved_state = srv.RENDER_Q, srv.RENDER_STATE
+        srv.RENDER_Q, srv.RENDER_STATE = queue.Queue(maxsize=2), {}
+        try:
+            self.assertTrue(srv.ensure_rendition("one"))
+            self.assertTrue(srv.ensure_rendition("two"))
+            self.assertFalse(srv.ensure_rendition("three"))
+            self.assertNotIn("three", srv.RENDER_STATE)
+            self.assertEqual(srv.ensure_rendition("one"), True)
+        finally:
+            srv.RENDER_Q, srv.RENDER_STATE = saved_q, saved_state
+
+    def test_concurrent_password_checks_are_capped(self):
+        for _ in range(4):
+            srv.PASSWORD_SLOTS.acquire()
+        try:
+            body = "user=tester&password=%s" % PASSWORD.replace(" ", "+")
+            status, _, _ = request("POST", "/login", body)
+            self.assertEqual(status, 503)
+        finally:
+            for _ in range(4):
+                srv.PASSWORD_SLOTS.release()
 
 
 def main():

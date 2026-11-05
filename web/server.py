@@ -73,12 +73,16 @@ APP_HEADERS = {"Referrer-Policy": "no-referrer",
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 SLOT = threading.Semaphore(1)
+# Password checks are deliberately expensive; a handful at a time is the whole point.
+# Refusing the fifth concurrent attempt is better than queueing unbounded threads.
+PASSWORD_SLOTS = threading.BoundedSemaphore(4)
+MAX_VIEW_BYTES = 16 * 1024 * 1024
 JOBS = {}
 LOCK = threading.Lock()
 STARTED = []
 
 # Lazy rendition generation: queue of stems waiting for html/epub, plus state.
-RENDER_Q = queue.Queue()
+RENDER_Q = queue.Queue(maxsize=8)
 RENDER_STATE = {}
 LIST_CACHE = {}
 
@@ -207,15 +211,19 @@ def set_password_cli(argv):
     if pw.lower() == user.lower():
         print("password must not equal the username", file=sys.stderr)
         return 2
-    auth = {
+    # Start from what is already on disk: write_auth() only keeps known keys, and a
+    # fresh dict would silently drop `sessions_after` and undo an earlier revocation.
+    auth = dict(existing)
+    auth.update({
         "user": user,
         "password_hash": hash_password(pw),
         "secret": existing.get("secret") or base64.b64encode(secrets.token_bytes(32)).decode(),
         "session_days": str(existing.get("session_days") or SESSION_DAYS),
-    }
+    })
     write_auth(auth)
     print("credentials stored for %r in %s (mode 600)" % (user, AUTH_PATH))
-    print("sessions already signed with the old secret stay valid")
+    print("sessions already signed with the old secret stay valid, and any earlier")
+    print("--invalidate-sessions cutoff is kept")
     return 0
 
 
@@ -534,7 +542,9 @@ def safe_next(nxt, default="/articles"):
     Browsers read `\\` as `/`, so `[backslash]evil.com` would be an open redirect
     even though urlparse sees a path.
     """
-    if not nxt or not nxt.startswith("/") or nxt.startswith("//") or "\\" in nxt:
+    if not nxt or CONTROL_RE.search(nxt):
+        return default
+    if not nxt.startswith("/") or nxt.startswith("//") or "\\" in nxt:
         return default
     parts = urlsplit(nxt)
     if parts.scheme or parts.netloc:
@@ -577,13 +587,21 @@ def render_worker():
 
 
 def ensure_rendition(stem):
-    """Queue a note for html/epub generation unless it is already queued or running."""
+    """Queue a note for html/epub generation unless it is already queued or running.
+
+    False means the queue is full: the caller should ask the reader to retry rather
+    than add another thread to an unbounded backlog.
+    """
     with LOCK:
         state = RENDER_STATE.get(stem)
         if state in ("queued", "running"):
-            return
+            return True
+        try:
+            RENDER_Q.put(stem, block=False)
+        except queue.Full:
+            return False
         RENDER_STATE[stem] = "queued"
-    RENDER_Q.put(stem)
+    return True
 
 
 def valid_stem(stem):
@@ -887,7 +905,8 @@ class Handler(BaseHTTPRequestHandler):
         with f:
             size = os.fstat(f.fileno()).st_size
             name = os.path.basename(real)
-            ascii_name = name.encode("ascii", "replace").decode("ascii").replace("?", "_")
+            ascii_name = CONTROL_RE.sub("", name.encode("ascii", "replace").decode("ascii")
+                                        .replace("?", "_"))
             headers = dict(APP_HEADERS)
             headers.update(extra or {})
             self.send_response(200)
@@ -932,7 +951,14 @@ class Handler(BaseHTTPRequestHandler):
             value="", body=body, refresh='<meta http-equiv="refresh" content="2">'))
 
     def serve_view(self, stem, paths):
-        if not os.path.exists(paths["html"]):
+        html_path = paths["html"]
+        # Same rule as send_file(): a rendition may only be read from inside the
+        # vault, so a planted symlink cannot turn this view into a file read.
+        if not contained_in_articles(html_path):
+            print("%s refused to view %r: outside %s"
+                  % (time.strftime("%H:%M:%S"), html_path, ARTICLES), flush=True)
+            return self.send(404, "not found", "text/plain; charset=utf-8")
+        if not os.path.exists(html_path):
             with LOCK:
                 state = RENDER_STATE.get(stem)
                 last_error = RENDER_STATE.get("_last_error", "")
@@ -941,7 +967,11 @@ class Handler(BaseHTTPRequestHandler):
                         '<p class="meta"><a href="/articles">back to articles</a></p>'
                         % (html.escape(stem), html.escape(str(last_error))))
                 return self.send(500, PAGE.format(cls=THEME.get(), value="", body=body, refresh=""))
-            ensure_rendition(stem)
+            if not ensure_rendition(stem):
+                body = ('<p class="err">The renderer is busy right now.</p>'
+                        '<p class="meta"><a href="/articles">back to articles</a></p>')
+                return self.send(503, PAGE.format(cls=THEME.get(), value="", body=body,
+                    refresh='<meta http-equiv="refresh" content="5">'))
             body = ('<p class="meta">Preparing this article, rendering the reading view'
                     ' from the note now&hellip;</p>')
             return self.send(200, PAGE.format(cls=THEME.get(), 
@@ -949,8 +979,12 @@ class Handler(BaseHTTPRequestHandler):
         entry = next((e for e in list_articles() if e["stem"] == stem), None)
         read = bool(entry and entry["read"])
         try:
-            with open(paths["html"], encoding="utf-8") as f:
-                doc = f.read()
+            size = os.path.getsize(html_path)
+            if size > MAX_VIEW_BYTES:
+                return self.send(500, "this rendition is too large to display (%d MiB)"
+                                 % (size // (1024 * 1024)), "text/plain; charset=utf-8")
+            with open(html_path, encoding="utf-8", errors="replace") as f:
+                doc = f.read(MAX_VIEW_BYTES)
         except OSError as e:
             return self.send(500, "could not read the rendition: %s" % e,
                              "text/plain; charset=utf-8")
@@ -1029,6 +1063,12 @@ class Handler(BaseHTTPRequestHandler):
                               ARTICLE_HEADERS if which == "html" else None)
 
     def send_redirect(self, location, code=303, extra=None):
+        # Last line of defence: whatever a caller computed, a header value can never
+        # carry CR/LF. Sending "/" is a visible failure without being an open redirect.
+        if CONTROL_RE.search(location or ""):
+            print("%s refused a redirect target containing control characters"
+                  % time.strftime("%H:%M:%S"), flush=True)
+            location = "/"
         headers = dict(APP_HEADERS)
         headers.update(extra or {})
         self.send_response(code)
@@ -1138,6 +1178,12 @@ class Handler(BaseHTTPRequestHandler):
         body = self.read_body(4096)
         if body is None:
             return
+        # Admission was checked before this request was read, and failures are only
+        # recorded afterwards, so parallel attempts can all clear that gate. Look again
+        # now that the request is actually here.
+        if self.login_blocked(ip) or globally_blocked():
+            return self.login_page(
+                '<p class="err">Too many attempts. Try again later.</p>', "/", 429)
         form = parse_qs(body.decode("utf-8", "replace"))
         user = (form.get("user") or [""])[0].strip()
         password = (form.get("password") or [""])[0]
@@ -1147,8 +1193,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.login_page(
                 '<p class="err">No credentials configured on the server yet.</p>', nxt, 503)
         user_ok = hmac.compare_digest(user.encode(), auth["user"].encode())
-        # Always pay for a scrypt run, so timing does not reveal whether the user exists.
-        pw_ok = check_password(password, auth["password_hash"] if user_ok else DUMMY_HASH)
+        if not PASSWORD_SLOTS.acquire(blocking=False):
+            return self.login_page(
+                '<p class="err">Too many logins at once. Try again in a moment.</p>', nxt, 503)
+        try:
+            # Always pay for a scrypt run, so timing does not reveal whether the user exists.
+            pw_ok = check_password(password, auth["password_hash"] if user_ok else DUMMY_HASH)
+        finally:
+            PASSWORD_SLOTS.release()
         if not (user_ok and pw_ok):
             self.note_failure(ip)
             # Never log the attempted username itself: that field is where people
@@ -1195,6 +1247,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             return self.send(422, "this note has no frontmatter, so there is nowhere to store "
                                   "the read state", "text/plain; charset=utf-8")
+        back = safe_next(back, "/articles")
         if not (back.startswith("/articles") or back.startswith("/article/")):
             back = "/articles"
         print("%s read: %s -> %s" % (time.strftime("%H:%M:%S"), stem,

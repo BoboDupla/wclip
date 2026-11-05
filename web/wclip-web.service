@@ -49,6 +49,10 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 # reach the LAN, other containers, or the cloud metadata endpoint. Both allows are
 # mandatory: 127.0.0.1 is Caddy connecting in, 127.0.0.53 is systemd-resolved's DNS
 # stub (see /etc/resolv.conf). Drop the second and every clip fails to resolve.
+# Honest limit: IPAddressAllow is a whitelist in BOTH directions and systemd cannot
+# scope it by port, so loopback is reachable in and out on every port (Caddy's admin
+# API included). The control that actually keeps wclip off loopback is its own
+# address policy; this is only the floor beneath it.
 # Explicit ranges rather than the "localhost"/"link-local" keywords, which older
 # systemd (this host runs 255) does not all understand.
 IPAddressDeny=127.0.0.0/8 ::1/128 169.254.0.0/16 fe80::/10 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7

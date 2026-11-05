@@ -99,6 +99,20 @@ endpoint's cap (4 KiB for login, 8 KiB for clip and toggle), the handler socket 
 out after 30 s, a clip URL containing control characters is refused before it reaches
 the CLI, and only paths under `articles_dir` (after `realpath`) can be served.
 
+Two more bounds, both about not turning the box into a thread factory:
+
+- At most four scrypt checks run at once. A fifth parallel login attempt gets a 503
+  with "too many logins at once" instead of another thread, and the rate limit is
+  checked again after the body is read, because failures are only recorded afterwards.
+- The lazy-render queue holds eight notes. Beyond that, the reading view says the
+  renderer is busy and offers a retry instead of queueing forever.
+
+Redirect targets (`next`, `back`) are validated once, and `send_redirect()` refuses a
+`Location` containing any control character as a last line of defence: it sends `/`
+and logs one line. A rendition larger than 16 MiB is not rendered in the reading view.
+Changing the password keeps any earlier `--invalidate-sessions` cutoff: the credentials
+file is updated in place, not rebuilt.
+
 ## Tests
 
 ```
