@@ -45,8 +45,12 @@ controls and bidi embedding characters; right-to-left marks are kept. A `rel=lic
 resolved against the page and dropped unless it is a plain HTTP(S) URL.
 
 Existing clips are **not retroactively repaired**. Re-clip old articles with the updated
-version if you intend to open their HTML/EPUB exports. Arbitrary edits made afterwards and
-vulnerabilities in third-party note viewers are outside wclip's guarantees.
+version if you intend to open their HTML/EPUB exports. The web front end in `web/` is the
+exception in practice: it sends its own CSP response header on every rendition it serves, so
+a file written before the `<meta>` policy existed is still sandboxed when read through it.
+Opening the same file from disk or in a note viewer keeps the older guarantee.
+Arbitrary edits made afterwards and vulnerabilities in third-party note viewers are
+outside wclip's guarantees.
 
 ## Networking and resource boundaries
 
@@ -78,8 +82,11 @@ and assume its CLI flags provide service-grade SSRF containment.
 - A cookies file (`--cookies FILE`, `cookies_file`) is a credential. It is read at 1 MiB max,
   names and values that could break out of a header are dropped, and no value is ever printed:
   diagnostics carry a count or a host name only. Cookies are attached per request hop from the
-  jar, so a redirect to another host receives none of them, and the jar is never passed as a
-  request header to image downloads. Passing `--cookies` on a command line exposes only the
+  jar, so a redirect to another host receives no domain cookies, and the jar is never passed as
+  a request header to image downloads. One exception is deliberate and worth knowing: a bare
+  `name=value` line with no domain becomes a wildcard entry (`*`, not secure) and is offered to
+  every host, including plain-HTTP redirect targets. Use a Netscape cookies.txt line with an
+  explicit domain when a cookie must not travel. Passing `--cookies` on a command line exposes only the
   path, never the tokens; the file itself is as sensitive as a saved password.
 - New config files use mode 0600 and newly created config directories use mode 0700. Setup
   does not request API keys on an echoing prompt. Prefer `OPENROUTER_API_KEY` in the environment;
@@ -111,5 +118,6 @@ findings because this one fixture is expected.
 ## Reporting
 
 Do not paste API keys, confidential clips, or exploit payloads containing real internal data
-into a public issue. Use GitHub private vulnerability reporting if enabled; otherwise arrange
-a private reporting channel with the maintainer before sharing sensitive details.
+into a public issue. GitHub private vulnerability reporting is enabled on this repository: use
+the "Report a vulnerability" button on the Security tab. If that is unavailable to you, arrange a
+private channel with the maintainer before sharing sensitive details.

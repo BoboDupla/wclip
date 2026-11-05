@@ -131,6 +131,28 @@ export function separateCaptionLabels(md: string): string {
   return md.replace(new RegExp(String.raw`([.!?]["”')\]]?)(?=${CAPTION_LABEL})`, 'g'), '$1\n\n');
 }
 
+// Fix 8: some sites (alxgsv's terminal-themed blog among them) put the whole post inside one
+// <pre>, so the entire article arrives as a single unlabelled fenced block: a wall of monospace
+// in the note, the HTML rendition and the EPUB. Only an article that is nothing but that one
+// block is unwrapped, and only when its text reads as prose, so an article that merely contains
+// a code listing, or a page that really is one snippet, is left untouched.
+export function unwrapProseCodeBlock(md: string): string | null {
+  const m = /^```([^\n`]*)\n([\s\S]*?)\n?```$/.exec(md.trim());
+  if (!m || m[1].trim()) return null; // a language tag means somebody meant it as code
+  const text = m[2];
+  if (text.length < 200) return null;
+  const paras = text.split(/\n[ \t]*\n/).map(p => p.trim()).filter(Boolean);
+  if (paras.length < 2) return null;
+  // Code punctuation (braces, angle brackets, semicolons, assignments, arrows, comment markers)
+  // is rare in prose and pervasive in code, including the minified single-line kind.
+  if ((text.match(/[{}<>;=]|=>|::|\/\/|\/\*/g) ?? []).length / text.length > 0.01) return null;
+  // Prose has sentence punctuation; code mostly has none, unless it is all comments.
+  if ((text.match(/[.!?]["'”’)]?(\s|$)/g) ?? []).length < paras.length) return null;
+  // Indentation inside a paragraph is a code shape; wrapped prose is not indented.
+  if (/^[ \t]{2,}\S/m.test(text)) return null;
+  return paras.map(p => p.split('\n').map(l => l.trim()).join(' ')).join('\n\n');
+}
+
 function postprocess(md: string): string {
   // Defuddle escapes "<trait>" but not "<trait\_description>"; unescaped, it reads as an HTML tag and vanishes.
   md = md.replace(/(^|[^\\])<(\/?[a-z][a-z0-9]*(?:\\_[a-z0-9]+)+)>/gm, '$1\\<$2>');
@@ -144,7 +166,7 @@ function postprocess(md: string): string {
   const paras = md.split(/\n\s*\n/).filter((p, i, a) => i === 0 || norm(p) !== norm(a[i - 1]));
   // Fix 3: parse raw HTML chunks once, rather than retrying an unbounded regex
   // at every unmatched <math>. Never decode annotation text into HTML markup.
-  return sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
+  const out = sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
     if (!/<math\b/i.test(raw)) return raw;
     const { document } = parseHTML(`<html><body>${raw}</body></html>`);
     const prefix = `WCTEX${randomUUID().replace(/-/g, '')}PH`;
@@ -158,6 +180,7 @@ function postprocess(md: string): string {
     }
     return document.body.innerHTML.replace(new RegExp(`${prefix}(\\d+)Z`, 'g'), (_, i: string) => tex[Number(i)]);
   });
+  return unwrapProseCodeBlock(out) ?? out;
 }
 
 // Fix 6: lead image. Defuddle drops some hero images that readers do see (Ars piracy article:

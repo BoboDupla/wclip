@@ -99,12 +99,17 @@ wclip --init-config              write a default config file
   -v, --verbose                  sizes, HTTP status, timings, written files
   -q, --quiet                    no progress lines; warnings, errors, saved path only
   --no-progress                  plain lines instead of a live status line
+  --json                         print one JSON result object on stdout; implies quiet
 ```
 
 
 ## Output
 
-Progress goes to stderr, so `--stdout` still emits the note and nothing else. When stderr is a
+Progress goes to stderr, so `--stdout` still emits the note and nothing else. `--json` is for
+callers rather than people: it implies quiet, prints nothing on stderr, and ends with one object
+on stdout, `{"ok":true,"existing":false,"path":…,"title":…,"tags":[],"words":N,"warnings":[]}`
+or `{"ok":false,"error":…}` with exit code 1. An existing note is `ok:true, existing:true` and
+exit 0, because the caller asked what happened rather than for overwrite semantics. When stderr is a
 terminal, one line is redrawn in place with a spinner and the elapsed time:
 
 ```
@@ -213,6 +218,9 @@ boilerplate:          # CSS selectors removed before extraction, per host; "*" =
 A host listed under `boilerplate` replaces that host's built-in list; other hosts keep theirs.
 `properties` also accepts `site` and `license` (off by default).
 
+Unknown keys are not rejected (they are passed through and unused), but they are named in a
+warning, because a dead key in a config file looks like it does something.
+
 ## What it does with awkward pages
 
 - Extraction keeps blockquotes, subheadings and images that Defuddle's defaults drop;
@@ -248,6 +256,14 @@ diff.
 The fetch tests run a local HTTP server: the tante decoy, a site that refuses non-browser
 clients, a windows-1250 page, and a JavaScript-only page. The real-Chromium test is skipped
 when no Chromium is found.
+
+## Web front end
+
+`web/` holds an optional single-user web UI over the same CLI: paste a URL, get the
+article as a page plus Markdown and EPUB downloads, and a reading list over the notes
+folder. It is one stdlib-only Python file that runs `wclip` as a subprocess, so
+extraction and rendering stay in the CLI. See `web/README.md` for the systemd unit, the
+Caddy block and the paths it expects.
 
 ## Layout
 

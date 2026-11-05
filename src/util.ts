@@ -15,11 +15,29 @@ export function die(msg: string): never {
 export function terminalText(msg: string): string {
   return String(msg).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
 }
+// --json owns stdout and keeps stderr for nothing at all, so warnings are collected
+// instead of printed and travel back inside the result object.
+let machine = false;
+const collected: string[] = [];
+
+export function setMachineMode(on: boolean): void {
+  machine = on;
+}
+export function isMachineMode(): boolean {
+  return machine;
+}
+export function takeWarnings(): string[] {
+  const out = collected.slice();
+  collected.length = 0;
+  return out;
+}
 export function warn(msg: string): void {
-  process.stderr.write(`warning: ${terminalText(msg)}\n`);
+  const text = terminalText(msg);
+  collected.push(text);
+  if (!machine) process.stderr.write(`warning: ${text}\n`);
 }
 export function info(msg: string): void {
-  process.stderr.write(`${terminalText(msg)}\n`);
+  if (!machine) process.stderr.write(`${terminalText(msg)}\n`);
 }
 
 // One shared line reader: a fresh readline per question would swallow the rest of piped input.
