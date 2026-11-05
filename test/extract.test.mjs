@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extract, separateCaptionLabels } from '../dist/extract.js';
+import { extract, separateCaptionLabels, unwrapProseCodeBlock } from '../dist/extract.js';
 import { GOLDEN, slugs, fixtureHtml, fixtureUrl, extractOptions } from './helpers.mjs';
 
 const results = {};
@@ -132,4 +132,25 @@ test('include_images: false drops images', async () => {
   const slug = 'ars-meta-yandex';
   const a = await extract(fixtureHtml(slug), fixtureUrl(slug), { ...extractOptions, includeImages: false });
   assert.doesNotMatch(a.content, /!\[/);
+});
+
+test('a post that is one unlabelled <pre> of prose is unwrapped into paragraphs', async () => {
+  const { content } = await get('alxgsv-let-me-check');
+  assert.doesNotMatch(content, /^```/m);
+  assert.match(content, /^That morning I woke up at 6:58, two minutes before the alarm\./);
+  assert.match(content, /\n\nFor now\.$/);
+});
+
+const FENCE = '```';
+test('a fenced block stays fenced unless it is prose and the whole article', () => {
+  const prose = 'The left one in my toaster always burns; my toaster has a favorite side. ' +
+    'And that was the only thing I was sure of that morning. I always iron a shirt.';
+  const block = (lang, body) => FENCE + lang + '\n' + body + '\n' + FENCE;
+  const body = prose + '\n\n' + prose;
+  assert.equal(unwrapProseCodeBlock(block('', body)), body);
+  // a language tag, a code shape, or other text around the block all mean "leave it alone"
+  assert.equal(unwrapProseCodeBlock(block('js', body)), null);
+  assert.equal(unwrapProseCodeBlock(block('', 'const x = 1;\n\nconsole.log(x);')), null);
+  assert.equal(unwrapProseCodeBlock('Intro.\n\n' + block('', body)), null);
+  assert.equal(unwrapProseCodeBlock(block('', prose)), null); // one paragraph is no article
 });

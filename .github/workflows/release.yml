@@ -17,7 +17,23 @@ defaults:
     shell: bash
 
 jobs:
+  # The web front end is stdlib Python with its own suite against a real HTTP server;
+  # npm test never touches it, so it gets its own required job.
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run the web front end tests
+        run: python3 web/test_server.py
+
   build:
+    needs: web
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:

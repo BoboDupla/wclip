@@ -19,7 +19,7 @@ import {
 import { warn } from './util.js';
 export { DEFAULT_MAX_BYTES, DEFAULT_MAX_DECODED_BYTES, type RequestPolicy } from './network-policy.js';
 
-export const VERSION = '0.6.1';
+export const VERSION = '0.9.3';
 export const HONEST_UA = `wclip/${VERSION} (personal article clipper)`;
 export const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
 
@@ -146,9 +146,18 @@ function tlsSettings(tls: https.RequestOptions): https.RequestOptions {
 
 // Cookies are attached per hop, from the jar, and any caller-supplied cookie field is
 // discarded first: a redirect target must only receive the cookies that match it.
-function hopHeaders(headers: Record<string, string>, target: URL, cookies?: CookieJar): Record<string, string> {
+function hopHeaders(headers: Record<string, string>, target: URL, cookies?: CookieJar,
+                    startOrigin?: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) if (k.toLowerCase() !== 'cookie') out[k] = v;
+  const crossed = startOrigin !== undefined && target.origin !== startOrigin;
+  for (const [k, v] of Object.entries(headers)) {
+    const name = k.toLowerCase();
+    if (name === 'cookie') continue;
+    // Credentials were issued for one origin; a redirect to another is a different
+    // party, and forwarding Authorization there would hand it our token.
+    if (crossed && (name === 'authorization' || name === 'proxy-authorization')) continue;
+    out[k] = v;
+  }
   const cookie = cookies?.header(target) ?? null;
   if (cookie) out.cookie = cookie;
   return out;
@@ -164,6 +173,7 @@ export async function get(url: string, headers: Record<string, string>, timeoutS
     throw new HttpError('timeout must be a positive number of seconds (at most 2147483)');
   }
   let current = checkedUrl(url, policy);
+  const startOrigin = current.origin;
   const controller = new AbortController();
   const timeoutError = new HttpError(`timed out after ${timeoutSec} s`);
   let request: http.ClientRequest | undefined;
@@ -182,7 +192,7 @@ export async function get(url: string, headers: Record<string, string>, timeoutS
       const mod = target.protocol === 'https:' ? https : http;
       response = await new Promise<http.IncomingMessage>((resolve, reject) => {
         const req = mod.get(target, {
-          ...tlsSettings(tls), headers: hopHeaders(headers, target, cookies), agent: false,
+          ...tlsSettings(tls), headers: hopHeaders(headers, target, cookies, startOrigin), agent: false,
           lookup: guardedLookup(policy), signal: controller.signal,
         }, resolve);
         request = req;

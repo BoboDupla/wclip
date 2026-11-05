@@ -11,7 +11,7 @@ import { llmTagsSummary } from './llm.js';
 import { buildNote, type Fields } from './note.js';
 import { getArticle } from './pipeline.js';
 import { makeImageFetcher, writeExports } from './render.js';
-import { WclipError, ask, closeInput, die, hostOf, info, normalizeUrl, parseDate, readingTime, sanitizeFilename, warn } from './util.js';
+import { WclipError, ask, closeInput, die, hostOf, info, isMachineMode, normalizeUrl, parseDate, readingTime, sanitizeFilename, setMachineMode, takeWarnings, warn } from './util.js';
 import { configureStatus, startTask, stopStatus } from './status.js';
 import { readTextFileLimited, safeWriteFile } from './files.js';
 
@@ -33,6 +33,7 @@ options:
   -r, --read               mark as read
   -f, --force              overwrite existing note
       --stdout             print note instead of writing it
+      --json               print one JSON result object on stdout; implies quiet
       --browser            fetch with the headless browser right away
       --no-browser         never use the headless browser
       --html FILE          extract from saved HTML (20 MiB limit; LLM off unless --llm)
@@ -57,7 +58,7 @@ Config: ~/.config/wclip/config.yaml (override with $WCLIP_CONFIG)
 type Args = {
   url?: string; interactive?: boolean; title?: string; author?: string; published?: string; description?: string;
   tags?: string; read?: boolean; force?: boolean; stdout?: boolean; browser?: boolean; 'no-browser'?: boolean;
-  html?: string; cookies?: string; verbose?: boolean; quiet?: boolean; 'no-progress'?: boolean;
+  html?: string; cookies?: string; verbose?: boolean; quiet?: boolean; 'no-progress'?: boolean; json?: boolean;
   llm?: boolean; 'no-llm'?: boolean; 'allow-private'?: boolean;
 };
 
@@ -116,6 +117,10 @@ async function gatherFields(url: string, art: Article, cfg: Config, args: Args):
   };
 }
 
+function emitJson(result: Record<string, unknown>): void {
+  process.stdout.write(JSON.stringify(result) + '\n');
+}
+
 async function writeNote(dest: string, note: string, cfg: Config, overwrite = false): Promise<void> {
   mkdirSync(join(dest, '..'), { recursive: true });
   try { safeWriteFile(dest, note, overwrite); } catch (e) {
@@ -171,8 +176,21 @@ async function batchClip(url: string, args: Args, cfg: Config, cookies?: CookieJ
     return;
   }
   const dest = join(expandHome(cfg.articles_dir), `${sanitizeFilename(f.title)}.md`);
-  if (existsSync(dest) && !args.force) die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
+  if (existsSync(dest) && !args.force) {
+    // In --json mode an existing note is a result, not a failure: the caller asked
+    // what happened and can act on `existing`. The text mode keeps exit code 1.
+    if (args.json) {
+      emitJson({ ok: true, existing: true, path: dest, title: f.title, warnings: takeWarnings() });
+      return;
+    }
+    die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
+  }
   await writeNote(dest, note, cfg, Boolean(args.force));
+  if (args.json) {
+    emitJson({ ok: true, existing: false, path: dest, title: f.title, tags: f.tags,
+               words: art.words, warnings: takeWarnings() });
+    return;
+  }
   info(`title: ${f.title} | ${art.words} words | ${readingTime(art.words, cfg.reading_wpm)}`);
   if (!f.tags.length && args.tags === undefined && (cfg.openrouter.enabled || args.llm) && !args['no-llm'])
     info('note: tags/description empty (OpenRouter skipped, unavailable or failed)');
@@ -191,7 +209,7 @@ async function main(): Promise<number> {
         stdout: { type: 'boolean' }, browser: { type: 'boolean' }, 'no-browser': { type: 'boolean' },
         html: { type: 'string' }, cookies: { type: 'string' },
         verbose: { type: 'boolean', short: 'v' }, quiet: { type: 'boolean', short: 'q' },
-        'no-progress': { type: 'boolean' }, 'init-config': { type: 'boolean' },
+        'no-progress': { type: 'boolean' }, 'init-config': { type: 'boolean' }, json: { type: 'boolean' },
         llm: { type: 'boolean' }, 'no-llm': { type: 'boolean' }, 'allow-private': { type: 'boolean' },
         version: { type: 'boolean', short: 'V' }, help: { type: 'boolean', short: 'h' },
       },
@@ -208,6 +226,11 @@ async function main(): Promise<number> {
   if (args.browser && args['no-browser']) die('--browser and --no-browser exclude each other');
   if (args.llm && args['no-llm']) die('--llm and --no-llm exclude each other');
   if (args.cookies !== undefined && !args.cookies.trim()) die('--cookies needs a file path');
+  if (args.json && args.stdout) die('--json and --stdout exclude each other');
+  if (args.json && args.interactive) die('--json and -i exclude each other');
+  if (args.json && values['init-config']) die('--json cannot be combined with --init-config');
+  // Before anything can warn: from here on stdout belongs to the JSON object alone.
+  if (args.json) setMachineMode(true);
 
   if (values['init-config']) {
     const p = configPath();
@@ -221,7 +244,8 @@ async function main(): Promise<number> {
   const cookies = resolveCookies(args, cfg);
   configureStatus({
     verbose: Boolean(args.verbose),
-    quiet: Boolean(args.quiet),
+    // --json implies quiet: stdout is the result and progress has nowhere to go.
+    quiet: Boolean(args.quiet || args.json),
     progress: args['no-progress'] ? false : cfg.progress,
   });
   if (args.interactive) await interactiveClip(args.url ?? '', args, cfg, cookies);
@@ -234,7 +258,8 @@ process.on('SIGINT', () => { stopStatus(); process.stderr.write('\naborted\n'); 
 // exitCode, not exit(): exit() can cut off a large note still being piped from --stdout.
 main().finally(closeInput).then(code => { process.exitCode = code; }, e => {
   stopStatus();
-  if (e instanceof WclipError) info(`error: ${e.message}`);
-  else info(`error: ${(e as Error).message ?? e}`);
+  const message = e instanceof WclipError ? e.message : ((e as Error).message ?? String(e));
+  if (isMachineMode()) process.stdout.write(JSON.stringify({ ok: false, error: message }) + '\n');
+  else info(`error: ${message}`);
   process.exitCode = 1;
 });
