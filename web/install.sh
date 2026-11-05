@@ -36,7 +36,10 @@ if ! caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1; t
 fi
 
 systemctl daemon-reload
-systemctl enable --now wclip-web.service
+# enable --now would leave an already-running service on the old unit file, which
+# silently skips new hardening settings; always restart so a redeploy takes effect.
+systemctl enable wclip-web.service
+systemctl restart wclip-web.service
 systemctl reload caddy
 
 sleep 2

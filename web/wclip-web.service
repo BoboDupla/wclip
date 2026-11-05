@@ -13,8 +13,46 @@ Environment="SHELL=/usr/bin/zsh"
 ExecStart=/usr/bin/python3 /home/deploy/apps/wclip-web/server.py
 Restart=always
 RestartSec=2
+
+# --- hardening ---------------------------------------------------------------
+# The service shell-outs to wclip, so these apply to the whole cgroup: the Python
+# server, the CLI subprocess, and the node renderer.
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# Everything the app legitimately writes: notes plus renditions, its own config and
+# credentials, and the wclip checkout (the launcher recompiles dist/ and installs
+# node_modules there when the sources change).
+ReadWritePaths=/home/deploy/apps/dufs/data/articles /home/deploy/.config/wclip-web /home/deploy/.local/share/wclip
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+# AF_NETLINK is not optional: glibc's resolver opens it to enumerate interfaces on
+# some paths, and without it name lookups fail in ways that look like a dead network.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+# Kernel-level SSRF floor: even if network-policy.ts has a bug, this cgroup cannot
+# reach the LAN, other containers, or the cloud metadata endpoint. Both allows are
+# mandatory: 127.0.0.1 is Caddy connecting in, 127.0.0.53 is systemd-resolved's DNS
+# stub (see /etc/resolv.conf). Drop the second and every clip fails to resolve.
+# Explicit ranges rather than the "localhost"/"link-local" keywords, which older
+# systemd (this host runs 255) does not all understand.
+IPAddressDeny=127.0.0.0/8 ::1/128 169.254.0.0/16 fe80::/10 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+IPAddressAllow=127.0.0.1/32 127.0.0.53/32
+
+MemoryMax=2G
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target

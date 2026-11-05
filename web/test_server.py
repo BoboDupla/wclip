@@ -19,6 +19,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -203,6 +204,76 @@ class RequestValidation(unittest.TestCase):
         cookie = login()
         status, _, _ = request("GET", "/article/..%2F..%2Fetc%2Fpasswd/html", cookie=cookie)
         self.assertEqual(status, 404)
+
+
+class CrossSite(unittest.TestCase):
+    def test_clip_from_another_site_is_refused(self):
+        cookie = login()
+        status, _, _ = request("POST", "/clip", "url=https%3A%2F%2Fexample.com",
+                               headers={"Sec-Fetch-Site": "cross-site"}, cookie=cookie)
+        self.assertEqual(status, 403)
+
+    def test_toggle_from_another_site_is_refused(self):
+        cookie = login()
+        status, _, _ = request("GET", "/toggle?stem=%s&to=0" % STEM,
+                               headers={"Sec-Fetch-Site": "cross-site"}, cookie=cookie)
+        self.assertEqual(status, 403)
+
+    def test_non_browser_client_still_works(self):
+        # No Sec-Fetch-Site at all (Shortcut, curl): the request reaches validation.
+        cookie = login()
+        status, _, _ = request("POST", "/clip", "url=ftp%3A%2F%2Fexample.com", cookie=cookie)
+        self.assertEqual(status, 400)
+
+    def test_same_origin_is_allowed(self):
+        cookie = login()
+        status, _, _ = request("POST", "/clip", "url=ftp%3A%2F%2Fexample.com",
+                               headers={"Sec-Fetch-Site": "same-origin"}, cookie=cookie)
+        self.assertEqual(status, 400)
+
+
+class Lockout(unittest.TestCase):
+    def tearDown(self):
+        srv.clear_global_failures()
+
+    def test_backoff_thresholds(self):
+        self.assertEqual(srv.global_backoff(9), 0)
+        self.assertEqual(srv.global_backoff(10), 900)
+        self.assertEqual(srv.global_backoff(20), 3600)
+        self.assertEqual(srv.global_backoff(30), 4 * 3600)
+
+    def test_ten_failures_lock_globally(self):
+        now = 1_000_000.0
+        for _ in range(9):
+            srv.note_global_failure(now)
+        self.assertFalse(srv.globally_blocked(now + 1))
+        srv.note_global_failure(now)
+        self.assertTrue(srv.globally_blocked(now + 1))
+        self.assertTrue(890 <= srv.global_wait(now + 1) <= 900)
+        self.assertFalse(srv.globally_blocked(now + 901))
+
+    def test_failures_age_out_of_the_window(self):
+        now = 2_000_000.0
+        for _ in range(9):
+            srv.note_global_failure(now - srv.GLOBAL_WINDOW - 10)
+        srv.note_global_failure(now)
+        # The old ones were pruned, so this is one failure, not ten.
+        self.assertFalse(srv.globally_blocked(now + 1))
+
+    def test_clear_on_success(self):
+        for _ in range(12):
+            srv.note_global_failure()
+        self.assertTrue(srv.globally_blocked())
+        srv.clear_global_failures()
+        self.assertFalse(srv.globally_blocked())
+
+    def test_prune_drops_stale_ip_entries(self):
+        now = time.time()
+        srv.LOGIN_FAILS["203.0.113.9"] = [now - srv.LOGIN_WINDOW - 1]
+        srv.LOGIN_FAILS["198.51.100.7"] = [now - 1]
+        srv.prune()
+        self.assertNotIn("203.0.113.9", srv.LOGIN_FAILS)
+        self.assertIn("198.51.100.7", srv.LOGIN_FAILS)
 
 
 def main():

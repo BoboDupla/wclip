@@ -69,8 +69,9 @@ openrouter:
   enabled: true            # tags and summaries, requires OPENROUTER_API_KEY
 ```
 
-Because the endpoint sits behind authentication, LLM metadata generation is on.
-Without a key, tags and the description come back empty and are not invented.
+The server does not pass `--llm`: `openrouter.enabled` in the config decides, so
+`false` really does keep the article text off the network. With `true` and no key,
+tags and the description come back empty rather than invented.
 
 ## Response headers and request limits
 
@@ -145,7 +146,16 @@ proxy must not leave an open endpoint behind.
   loopback.
 - Login failures are throttled per client IP: 5 attempts per 15 minutes, then
   `429`. The IP is taken from the first `X-Forwarded-For` hop, since every
-  request otherwise appears to come from the proxy.
+  request otherwise appears to come from the proxy, and the proxy is expected to
+  set that header itself (Caddy does).
+- There is also a global counter: 10 failures inside 24 hours buy a 15 minute
+  cooldown, 20 an hour, 30 four hours. A successful login clears it and a
+  restart clears it, because it is deliberately in memory. This is what stops
+  somebody who can pick their own source address; it is also a self-lockout
+  risk, which is why the escalation starts at ten rather than five.
+- State-changing requests (`POST /clip`, `GET|POST /toggle`) are refused with
+  `403` when the browser reports `Sec-Fetch-Site: cross-site` or `same-site`.
+  A request without that header (curl, a Shortcut) is still allowed.
 - `POST /clip` with a JSON body, or any request asking for JSON, returns `401`
   with a JSON error instead of an HTML redirect, so scripts and shortcuts can
   handle it.
@@ -280,6 +290,15 @@ host. Change them before using this elsewhere:
 - `wclip-web.service`: `User`/`Group`, `WorkingDirectory`, `EnvironmentFile`
   (`~/.config/wclip-web/env` holds `OPENROUTER_API_KEY` when the LLM step is on) and
   `ExecStart` point at `/home/deploy/apps/wclip-web`.
+- The same unit hardens the cgroup: `ProtectSystem=strict`, `ProtectHome=read-only`
+  with `ReadWritePaths` for the articles folder, `~/.config/wclip-web` and the wclip
+  checkout, no capabilities, `MemoryMax=2G`, `TasksMax=256`, and an address filter
+  that denies loopback, link-local, multicast and every private range. Both
+  `IPAddressAllow` entries matter: `127.0.0.1` is the reverse proxy connecting in,
+  `127.0.0.53` is the local DNS resolver. Without the first the site goes dark,
+  without the second every clip fails to resolve hostnames. `SystemCallFilter` is
+  deliberately absent: it is the setting most likely to break Node in ways that are
+  hard to attribute, and it can be added once the filtered run is known to work.
 - `install.sh`: `APP=/home/deploy/apps/wclip-web` and the Caddy site name
   `clip.shtfn.xyz` in `caddy-clip.snippet`. The script checks that Caddy still
   validates and restores its backup if it does not.

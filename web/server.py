@@ -29,7 +29,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlsplit
 
-WCLIP = os.path.expanduser("~/.local/bin/wclip")
+WCLIP = os.path.expanduser(os.environ.get("WCLIP_BIN", "~/.local/bin/wclip"))
 CONFIG = os.path.expanduser("~/.config/wclip-web/config.yaml")
 AUTH_PATH = os.path.expanduser("~/.config/wclip-web/auth.yaml")
 PORT = int(os.environ.get("WCLIP_PORT", "8791"))
@@ -43,6 +43,14 @@ MIN_PASSWORD = 12
 LOGIN_MAX_FAILS = 5
 LOGIN_WINDOW = 900          # 15 minutes
 LOGIN_FAILS = {}
+# One user, one password: a per-IP limit alone is worth nothing to somebody with a
+# pile of addresses, or to a local process that picks its own X-Forwarded-For. Every
+# failure therefore also counts globally and buys an escalating cooldown. In memory,
+# so a restart clears it, and a successful login clears it too.
+GLOBAL_FAILS = []
+GLOBAL_WINDOW = 24 * 3600
+GLOBAL_LOCK_UNTIL = 0.0
+GLOBAL_STEPS = ((30, 4 * 3600), (20, 3600), (10, 900))
 
 JOB_TTL = 2 * 3600          # in-memory job entries expire after 2 hours
 MAX_QUEUE = 4               # pending clips before we refuse new ones
@@ -269,6 +277,43 @@ CLIPPED_RE = re.compile(r"^Clipped: (.+\.md)\s*$", re.M)
 EXISTS_RE = re.compile(r"already clipped: (.+?\.md)")
 
 
+def global_backoff(count):
+    """Cooldown earned by this many failures inside the global window."""
+    for threshold, seconds in GLOBAL_STEPS:
+        if count >= threshold:
+            return seconds
+    return 0
+
+
+def globally_blocked(now=None):
+    return (now or time.time()) < GLOBAL_LOCK_UNTIL
+
+
+def global_wait(now=None):
+    return max(0, int(GLOBAL_LOCK_UNTIL - (now or time.time())))
+
+
+def note_global_failure(now=None):
+    """Count one failure, extend the cooldown and return it in seconds."""
+    global GLOBAL_LOCK_UNTIL
+    now = now or time.time()
+    with LOCK:
+        GLOBAL_FAILS.append(now)
+        while GLOBAL_FAILS and now - GLOBAL_FAILS[0] > GLOBAL_WINDOW:
+            GLOBAL_FAILS.pop(0)
+        seconds = global_backoff(len(GLOBAL_FAILS))
+        if seconds:
+            GLOBAL_LOCK_UNTIL = max(GLOBAL_LOCK_UNTIL, now + seconds)
+        return seconds
+
+
+def clear_global_failures():
+    global GLOBAL_LOCK_UNTIL
+    with LOCK:
+        GLOBAL_FAILS.clear()
+        GLOBAL_LOCK_UNTIL = 0.0
+
+
 def prune():
     now = time.time()
     with LOCK:
@@ -276,6 +321,15 @@ def prune():
                 if v["state"] != "running" and now - v["t0"] > JOB_TTL]
         for j in dead:
             JOBS.pop(j, None)
+        # Both failure tables are keyed by whoever is attacking; never let them grow.
+        for ip in list(LOGIN_FAILS):
+            hits = [t for t in LOGIN_FAILS[ip] if now - t < LOGIN_WINDOW]
+            if hits:
+                LOGIN_FAILS[ip] = hits
+            else:
+                LOGIN_FAILS.pop(ip, None)
+        while GLOBAL_FAILS and now - GLOBAL_FAILS[0] > GLOBAL_WINDOW:
+            GLOBAL_FAILS.pop(0)
 
 
 def sweeper():
@@ -598,7 +652,9 @@ def run_job(job_id, url):
         try:
             # No --force: an existing note is never clobbered, it is shown instead.
             p = subprocess.run(
-                [WCLIP, url, "--quiet", "--no-progress", "--llm"],
+                # No --llm: the web config decides, so openrouter.enabled: false in
+                # the config really does keep article text off the network.
+                [WCLIP, url, "--quiet", "--no-progress"],
                 env=env, capture_output=True, text=True, timeout=300,
             )
             job["seconds"] = round(time.time() - t0, 1)
@@ -987,6 +1043,15 @@ class Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").split(":")[0]
         return host not in ("127.0.0.1", "localhost", "::1", "")
 
+    def same_site(self):
+        """False when the browser says another site started this request.
+
+        Absent for non-browser clients (a Shortcut, curl), and "none" is a typed URL
+        or a bookmark, so both stay allowed; only a known cross-site origin is refused.
+        """
+        site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        return site in ("", "none", "same-origin")
+
     def client_ip(self):
         xff = self.headers.get("X-Forwarded-For")
         if xff:
@@ -1003,6 +1068,8 @@ class Handler(BaseHTTPRequestHandler):
     def note_failure(self, ip):
         with LOCK:
             LOGIN_FAILS.setdefault(ip, []).append(time.time())
+        # Outside the lock: note_global_failure takes it again.
+        note_global_failure()
 
     def login_page(self, message="", next_url="/", code=200):
         return self.send(code, LOGIN_PAGE.format(cls=THEME.get(), 
@@ -1039,6 +1106,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.login_blocked(ip):
             return self.login_page(
                 '<p class="err">Too many attempts. Wait 15 minutes and try again.</p>', "/", 429)
+        if globally_blocked():
+            mins = max(1, (global_wait() + 59) // 60)
+            return self.login_page(
+                '<p class="err">Too many failed attempts. Try again in %d minute(s), '
+                'or restart the service to clear the cooldown.</p>' % mins, "/", 429)
         body = self.read_body(4096)
         if body is None:
             return
@@ -1055,12 +1127,17 @@ class Handler(BaseHTTPRequestHandler):
         pw_ok = check_password(password, auth["password_hash"] if user_ok else DUMMY_HASH)
         if not (user_ok and pw_ok):
             self.note_failure(ip)
-            print("%s login failed for %r from %s" % (time.strftime("%H:%M:%S"), user[:32], ip),
-                  flush=True)
+            # Never log the attempted username itself: that field is where people
+            # paste their password by mistake.
+            print("%s login failed for user#%s from %s"
+                  % (time.strftime("%H:%M:%S"),
+                     hashlib.sha256(user.encode("utf-8")).hexdigest()[:10], ip), flush=True)
             return self.login_page(
                 '<p class="err">Wrong username or password.</p>', nxt, 401)
         with LOCK:
             LOGIN_FAILS.pop(ip, None)
+        # The owner is back; an attacker cannot get this far, so drop the cooldown.
+        clear_global_failures()
         days = int(auth.get("session_days") or SESSION_DAYS)
         token = make_session(auth["user"], auth["secret"], days)
         if not nxt.startswith("/") or nxt.startswith("//"):
@@ -1071,6 +1148,8 @@ class Handler(BaseHTTPRequestHandler):
             "Set-Cookie": cookie_header(token, days * 86400, self.secure_cookie())})
 
     def toggle(self, params):
+        if not self.same_site():
+            return self.send(403, "cross-site request rejected", "text/plain; charset=utf-8")
         host = self.headers.get("Host", "")
         for hdr in ("Origin", "Referer"):
             origin = self.headers.get(hdr)
@@ -1112,6 +1191,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.toggle(parse_qs(body.decode("utf-8", "replace")))
         if path != "/clip":
             return self.send(404, "not found", "text/plain; charset=utf-8")
+        if not self.same_site():
+            return self.send(403, "cross-site request rejected", "text/plain; charset=utf-8")
         body = self.read_body(8192)
         if body is None:
             return

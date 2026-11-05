@@ -17,6 +17,8 @@ cookies_file: ''
 default_tags: []
 
 openrouter:
+  # true sends the article text to OpenRouter for tags and a description. The server
+  # no longer forces this on, so false genuinely keeps article text local.
   enabled: false
   # Or leave empty and set OPENROUTER_API_KEY in the service environment.
   api_key: ''
