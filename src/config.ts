@@ -85,6 +85,14 @@ function rejectUnsafeKeys(value: unknown, path = 'config', depth = 0): void {
   }
 }
 
+// Every key the rest of the code reads. Anything else in the file is accepted but
+// unused, which is worth one warning: a dead key looks like configuration.
+const KNOWN_KEYS = new Set([
+  'articles_dir', 'reading_wpm', 'include_images', 'make_html', 'make_epub', 'timeout',
+  'progress', 'allow_private', 'cookies_file', 'openrouter', 'properties',
+  'custom_properties', 'browser', 'boilerplate',
+]);
+
 export function validateConfig(value: unknown): Config {
   rejectUnsafeKeys(value);
   if (!isObj(value)) die('config must be a mapping');
@@ -126,6 +134,9 @@ export function validateConfig(value: unknown): Config {
   }
   if (!isObj(c.boilerplate)) fail('boilerplate', 'a mapping of hosts to selector lists');
   for (const [host, sels] of Object.entries(c.boilerplate as Record<string, unknown>)) strings(sels, `boilerplate.${host}`);
+  for (const key of Object.keys(c)) {
+    if (!KNOWN_KEYS.has(key)) warn(`config: unknown key "${key}" is ignored`);
+  }
   return c as unknown as Config;
 }
 

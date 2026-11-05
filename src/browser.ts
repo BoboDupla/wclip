@@ -14,11 +14,15 @@ const MAX_REDIRECTS = 10;
 // memory. Article text never needs audio/video streams or webfonts, so refuse them
 // before a hostile page can allocate gigabytes.
 const BLOCKED_RESOURCES = new Set(['media', 'font', 'manifest', 'texttrack']);
-// Chromium's own UDP-based WebRTC paths bypass route interception entirely.
-const WEBRTC_ARGS = [
+// Chromium's own UDP-based WebRTC paths bypass route interception entirely, and
+// <link rel=preconnect>/dns-prefetch resolve names without ever reaching
+// context.route(). Neither flag is a sandbox on its own; they close the cheap holes.
+const CHROMIUM_ARGS = [
   '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
   '--webrtc-ip-handling-policy=disable_non_proxied_udp',
   '--enforce-webrtc-ip-permission-check',
+  '--dns-prefetch-disable',
+  '--disable-features=NetworkPrediction',
 ];
 
 function onPath(name: string): string | null {
@@ -96,7 +100,7 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     const errors: string[] = [];
     for (const exe of [...new Set(candidates)]) {
       try {
-        browser = await chromium.launch({ executablePath: exe, headless: true, chromiumSandbox: true, args: WEBRTC_ARGS, timeout: remaining() });
+        browser = await chromium.launch({ executablePath: exe, headless: true, chromiumSandbox: true, args: CHROMIUM_ARGS, timeout: remaining() });
         // A launch that races the deadline must not leave a browser process behind.
         if (finished) { await browser.close(); throw new Error(`timed out after ${timeoutSec} s`); }
         break;
