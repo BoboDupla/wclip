@@ -18,6 +18,7 @@ import os
 import queue
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,22 @@ LOGIN_FAILS = {}
 JOB_TTL = 2 * 3600          # in-memory job entries expire after 2 hours
 MAX_QUEUE = 4               # pending clips before we refuse new ones
 MAX_PER_HOUR = 40           # total clips per hour (single user, so a runaway guard)
+
+# Rendered articles are third-party HTML served on this origin, so the policy goes in a
+# response header instead of trusting the <meta> tag a given rendition happens to carry
+# (most older ones carry none). `sandbox allow-downloads` gives the document an opaque
+# origin while keeping the reading view's EPUB link usable.
+ARTICLE_CSP = ("default-src 'none'; script-src 'none'; img-src https: data:; "
+               "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
+               "frame-ancestors 'none'; sandbox allow-downloads")
+ARTICLE_HEADERS = {"Content-Security-Policy": ARTICLE_CSP,
+                   "Referrer-Policy": "no-referrer"}
+# The app's own pages need inline styles and forms; this only stops framing and leaks.
+APP_HEADERS = {"Referrer-Policy": "no-referrer",
+               "Content-Security-Policy": "frame-ancestors 'none'",
+               "X-Frame-Options": "DENY"}
+
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 SLOT = threading.Semaphore(1)
 JOBS = {}
@@ -414,6 +431,42 @@ def list_articles():
     return entries
 
 
+def contained_in_articles(path):
+    """True only for a real path inside the articles folder.
+
+    Rendition paths come from the CLI's stderr, so they are checked against the
+    folder rather than trusted; a symlink out of it fails the same test.
+    """
+    root = os.path.realpath(ARTICLES)
+    real = os.path.realpath(path)
+    return real == root or real.startswith(root + os.sep)
+
+
+def valid_clip_url(url):
+    """A http(s) URL we are willing to hand to the CLI as one argv item.
+
+    Control characters are refused: the CLI deliberately keeps newlines in
+    diagnostics, and this URL ends up inside one.
+    """
+    return (url.lower().startswith(("http://", "https://"))
+            and len(url) <= 2048
+            and not CONTROL_RE.search(url))
+
+
+def safe_next(nxt, default="/articles"):
+    """An in-app redirect target, or the default.
+
+    Browsers read `\\` as `/`, so `[backslash]evil.com` would be an open redirect
+    even though urlparse sees a path.
+    """
+    if not nxt or not nxt.startswith("/") or nxt.startswith("//") or "\\" in nxt:
+        return default
+    parts = urlsplit(nxt)
+    if parts.scheme or parts.netloc:
+        return default
+    return nxt
+
+
 def rendition_paths(stem):
     d = ARTICLES
     return {"md": os.path.join(d, stem + ".md"),
@@ -706,31 +759,70 @@ def bar_html(stem, read):
 class Handler(BaseHTTPRequestHandler):
     server_version = "wclip-web"
     sys_version = ""
+    # A stalled client should not own a thread for the rest of the day.
+    timeout = 30
 
     def log_message(self, fmt, *a):
         print("%s %s" % (time.strftime("%H:%M:%S"), fmt % a), flush=True)
 
+    def read_body(self, cap):
+        """The request body, or None after refusing a bad or oversized length."""
+        raw = (self.headers.get("Content-Length") or "0").strip()
+        try:
+            length = int(raw)
+        except ValueError:
+            self.send(400, "bad Content-Length", "text/plain; charset=utf-8")
+            return None
+        if length < 0:
+            self.send(400, "bad Content-Length", "text/plain; charset=utf-8")
+            return None
+        if length > cap:
+            self.send(413, "request too large", "text/plain; charset=utf-8")
+            return None
+        return self.rfile.read(length)
+
     def send(self, code, body, ctype="text/html; charset=utf-8", extra=None):
         data = body.encode("utf-8") if isinstance(body, str) else body
+        headers = dict(APP_HEADERS)
+        headers.update(extra or {})
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
-        for k, v in (extra or {}).items():
+        for k, v in headers.items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
-    def send_file(self, path, ctype, disp):
-        with open(path, "rb") as f:
-            data = f.read()
-        name = os.path.basename(path)
-        ascii_name = name.encode("ascii", "replace").decode("ascii").replace("?", "_")
-        self.send(200, data, ctype, {
-            "Content-Disposition": "%s; filename=\"%s\"; filename*=UTF-8''%s"
-                                   % (disp, ascii_name, quote(name)),
-        })
+    def send_file(self, path, ctype, disp, extra=None):
+        if not contained_in_articles(path):
+            print("%s refused to serve %r: outside %s"
+                  % (time.strftime("%H:%M:%S"), path, ARTICLES), flush=True)
+            return self.send(404, "not found", "text/plain; charset=utf-8")
+        real = os.path.realpath(path)
+        try:
+            f = open(real, "rb")
+        except OSError:
+            return self.send(404, "not found", "text/plain; charset=utf-8")
+        with f:
+            size = os.fstat(f.fileno()).st_size
+            name = os.path.basename(real)
+            ascii_name = name.encode("ascii", "replace").decode("ascii").replace("?", "_")
+            headers = dict(APP_HEADERS)
+            headers.update(extra or {})
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", "%s; filename=\"%s\"; filename*=UTF-8''%s"
+                                                   % (disp, ascii_name, quote(name)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            for k, v in headers.items():
+                self.send_header(k, v)
+            self.end_headers()
+            # Stream it: an EPUB with images can be tens of megabytes.
+            shutil.copyfileobj(f, self.wfile, 64 * 1024)
 
     def serve_article(self, stem, which):
         if which not in ("view", "html", "md", "epub") or not valid_stem(stem):
@@ -744,7 +836,8 @@ class Handler(BaseHTTPRequestHandler):
                  "epub": ("application/epub+zip", "attachment")}
         if os.path.exists(path):
             ctype, disp = kinds[which]
-            return self.send_file(path, ctype, disp)
+            return self.send_file(path, ctype, disp,
+                                  ARTICLE_HEADERS if which == "html" else None)
         with LOCK:
             state = RENDER_STATE.get(stem)
             last_error = RENDER_STATE.get("_last_error", "")
@@ -789,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
             doc = doc.replace("</head>", dark + "\n</head>", 1)
         if "<body>" in doc:
             doc = doc.replace("<body>", "<body>\n" + bar_html(stem, read) + "\n", 1)
-        return self.send(200, doc, "text/html; charset=utf-8")
+        return self.send(200, doc, "text/html; charset=utf-8", ARTICLE_HEADERS)
 
     def handle_theme(self, qs):
         to = (qs.get("to") or ["auto"])[0]
@@ -812,7 +905,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/login":
             qs = parse_qs(parsed.query)
-            nxt = (qs.get("next") or ["/articles"])[0]
+            nxt = safe_next((qs.get("next") or ["/articles"])[0], "/articles")
             auth = load_auth()
             msg = ("" if auth.get("user") and auth.get("password_hash") else
                    '<p class="err">No credentials are configured on the server yet.</p>')
@@ -853,13 +946,16 @@ class Handler(BaseHTTPRequestHandler):
         if not path or not os.path.exists(path):
             return self.send(404, "%s was not written" % which, "text/plain; charset=utf-8")
         ctype, disp = kinds[which]
-        return self.send_file(path, ctype, disp)
+        return self.send_file(path, ctype, disp,
+                              ARTICLE_HEADERS if which == "html" else None)
 
     def send_redirect(self, location, code=303, extra=None):
+        headers = dict(APP_HEADERS)
+        headers.update(extra or {})
         self.send_response(code)
         self.send_header("Location", location)
         self.send_header("Content-Length", "0")
-        for k, v in (extra or {}).items():
+        for k, v in headers.items():
             self.send_header(k, v)
         self.end_headers()
 
@@ -943,13 +1039,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.login_blocked(ip):
             return self.login_page(
                 '<p class="err">Too many attempts. Wait 15 minutes and try again.</p>', "/", 429)
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 4096:
-            return self.send(413, "request too large", "text/plain; charset=utf-8")
-        form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+        body = self.read_body(4096)
+        if body is None:
+            return
+        form = parse_qs(body.decode("utf-8", "replace"))
         user = (form.get("user") or [""])[0].strip()
         password = (form.get("password") or [""])[0]
-        nxt = (form.get("next") or ["/"])[0]
+        nxt = safe_next((form.get("next") or ["/"])[0], "/articles")
         auth = load_auth()
         if not auth.get("user") or not auth.get("password_hash"):
             return self.login_page(
@@ -1010,16 +1106,16 @@ class Handler(BaseHTTPRequestHandler):
         if self.gate(json_mode=(path == "/clip")):
             return
         if path == "/toggle":
-            length = int(self.headers.get("Content-Length") or 0)
-            if length > 8192:
-                return self.send(413, "request too large", "text/plain; charset=utf-8")
-            return self.toggle(parse_qs(self.rfile.read(length).decode("utf-8", "replace")))
+            body = self.read_body(8192)
+            if body is None:
+                return
+            return self.toggle(parse_qs(body.decode("utf-8", "replace")))
         if path != "/clip":
             return self.send(404, "not found", "text/plain; charset=utf-8")
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 8192:
-            return self.send(413, "request too large", "text/plain; charset=utf-8")
-        raw = self.rfile.read(length).decode("utf-8", "replace")
+        body = self.read_body(8192)
+        if body is None:
+            return
+        raw = body.decode("utf-8", "replace")
         url = ""
         if "application/json" in (self.headers.get("Content-Type") or ""):
             try:
@@ -1028,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
                 url = ""
         else:
             url = (parse_qs(raw).get("url") or [""])[0].strip()
-        if not url.lower().startswith(("http://", "https://")) or len(url) > 2048:
+        if not valid_clip_url(url):
             return self.send(400, render(), "text/html; charset=utf-8")
         now = time.time()
         with LOCK:
@@ -1046,10 +1142,7 @@ class Handler(BaseHTTPRequestHandler):
             job_id = uuid.uuid4().hex[:12]
             JOBS[job_id] = {"url": url, "state": "running", "t0": now}
         threading.Thread(target=run_job, args=(job_id, url), daemon=True).start()
-        self.send_response(303)
-        self.send_header("Location", "/job/" + job_id)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        return self.send_redirect("/job/" + job_id)
 
 
 if __name__ == "__main__":

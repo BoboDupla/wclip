@@ -45,8 +45,12 @@ controls and bidi embedding characters; right-to-left marks are kept. A `rel=lic
 resolved against the page and dropped unless it is a plain HTTP(S) URL.
 
 Existing clips are **not retroactively repaired**. Re-clip old articles with the updated
-version if you intend to open their HTML/EPUB exports. Arbitrary edits made afterwards and
-vulnerabilities in third-party note viewers are outside wclip's guarantees.
+version if you intend to open their HTML/EPUB exports. The web front end in `web/` is the
+exception in practice: it sends its own CSP response header on every rendition it serves, so
+a file written before the `<meta>` policy existed is still sandboxed when read through it.
+Opening the same file from disk or in a note viewer keeps the older guarantee.
+Arbitrary edits made afterwards and vulnerabilities in third-party note viewers are
+outside wclip's guarantees.
 
 ## Networking and resource boundaries
 

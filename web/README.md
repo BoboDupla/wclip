@@ -37,6 +37,7 @@ may rebuild its compiled output on start, and two concurrent runs race on
 | Path | Purpose |
 | --- | --- |
 | `server.py` | the whole application |
+| `test_server.py` | stdlib tests, run with `python3 web/test_server.py` |
 | `render-note.mjs` | generates missing HTML/EPUB using wclip's own renderer |
 | `wclip-web.service` | systemd unit template |
 | `install.sh` | installs the unit and rewrites the proxy configuration |
@@ -70,6 +71,40 @@ openrouter:
 
 Because the endpoint sits behind authentication, LLM metadata generation is on.
 Without a key, tags and the description come back empty and are not invented.
+
+## Response headers and request limits
+
+Renditions are third-party HTML, so the server does not rely on whatever `<meta>`
+tag a given file happens to contain. Every `/article/*/view`, `/article/*/html`
+and `/job/*/html` response carries:
+
+```
+Content-Security-Policy: default-src 'none'; script-src 'none'; img-src https: data:;
+  style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';
+  frame-ancestors 'none'; sandbox allow-downloads
+Referrer-Policy: no-referrer
+```
+
+`sandbox` gives the document an opaque origin; `allow-downloads` is what keeps the
+reading view's EPUB and Markdown links working. The app's own pages get
+`frame-ancestors 'none'`, `X-Frame-Options: DENY` and `no-referrer` instead, because
+they need inline styles and forms.
+
+The request side is deliberately narrow: `Content-Length` must parse and fit the
+endpoint's cap (4 KiB for login, 8 KiB for clip and toggle), the handler socket times
+out after 30 s, a clip URL containing control characters is refused before it reaches
+the CLI, and only paths under `articles_dir` (after `realpath`) can be served.
+
+## Tests
+
+```
+python3 web/test_server.py
+```
+
+Stdlib `unittest`. It imports the app with `HOME` and `WCLIP_WEB_ARTICLES` pointed at
+a temporary tree, starts a real server on an ephemeral port and checks the headers,
+the login redirect, control-character and length rejection, path containment and the
+404s. No network, no credentials, nothing touched outside the temp directory.
 
 ## First run
 
