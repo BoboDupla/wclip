@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configPath } from '../dist/config.js';
+import { configPath, validateConfig, DEFAULTS } from '../dist/config.js';
 import { envVar } from '../dist/util.js';
 
 function withEnv(vars, fn) {
@@ -31,4 +31,19 @@ test('$WCLIP_CONFIG overrides the default path', () => {
 
 test('$WCLIP_CHROMIUM is read for the browser fallback', () => {
   withEnv({ WCLIP_CHROMIUM: '/usr/bin/x' }, () => assert.equal(envVar('CHROMIUM'), '/usr/bin/x'));
+});
+
+test('an unknown config key is reported once and ignored', () => {
+  const lines = [];
+  const real = process.stderr.write;
+  process.stderr.write = chunk => { lines.push(String(chunk)); return true; };
+  try {
+    validateConfig({ ...structuredClone(DEFAULTS), default_tags: [] });
+    validateConfig({ ...structuredClone(DEFAULTS) });
+  } finally {
+    process.stderr.write = real;
+  }
+  const named = lines.filter(l => /unknown key/.test(l));
+  assert.equal(named.length, 1, lines.join(''));
+  assert.match(named[0], /unknown key "default_tags" is ignored/);
 });

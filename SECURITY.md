@@ -8,7 +8,11 @@ It is not a hardened URL-fetching service or a multi-tenant bot backend.
 
 - Private and special-purpose network destinations are denied by default. `--allow-private`
   or `allow_private: true` explicitly permits intentional local/intranet requests, including
-  page images. Do not enable it for untrusted public pages on a sensitive network.
+  page images. Apart from IP ranges, obvious intranet names (`localhost`, `*.local`,
+  `*.internal`, `*.lan`, `*.home.arpa`, `*.corp`, `*.intranet`, `*.localdomain`) and
+  single-label hostnames are refused by name, because split-horizon DNS can answer them with a
+  publicly routable address. Do not enable `--allow-private` for untrusted public pages on a
+  sensitive network.
 - Browser JavaScript execution is off by default. `--browser` enables it for a run;
   `browser.mode: auto` explicitly enables automatic fallback. Chromium must start with its
   sandbox enabled. wclip does not fall back to an unsandboxed browser.
@@ -16,9 +20,14 @@ It is not a hardened URL-fetching service or a multi-tenant bot backend.
   `--llm` authorises sending the title and up to 15,000 characters of article text for that
   run. `openrouter.enabled: true` opts into this for ordinary public URLs. Saved HTML and
   any run with private-network access still need `--llm` each time. `--no-llm` always wins.
-  The configured model/provider's data terms apply; wclip cannot guarantee their retention
-  or confidentiality policies. No fallback summary is fabricated if the call fails.
-- Defuddle has no outbound network access. arXiv pages trigger an arXiv metadata request.
+  Instructions and article text travel as separate system/user messages and the article is
+  delimited as data, which reduces (but does not eliminate) prompt injection. The configured
+  model/provider's data terms apply; `openrouter.data_collection: deny` asks OpenRouter to
+  refuse providers that may retain or train on prompts, at the cost of possible price changes
+  or "no provider" failures. wclip cannot guarantee provider retention or confidentiality
+  policies. No fallback summary is fabricated if the call fails.
+- Defuddle has no outbound network access. arXiv pages trigger an arXiv metadata request, but
+  not during `--html` runs, which read a local snapshot and generate no traffic.
   EPUB images are fetched while exporting. HTML images remain remote and are fetched by
   your viewer when opened; no-referrer prevents sending the source URL but does not hide
   your IP address or viewing time.
@@ -28,27 +37,40 @@ It is not a hardened URL-fetching service or a multi-tenant bot backend.
 Article Markdown is cleaned with Markdown-aware handling so raw active HTML and dangerous
 link/image destinations do not pass into notes. Rendered HTML and EPUB share an allow-list
 sanitiser, including the MathML needed for equations. HTML has a restrictive CSP as defence
-in depth. Code snippets remain text, not executable markup. Unsupported active image formats
-are not embedded as executable documents.
+in depth, and its `img-src` allows HTTPS only. Code snippets remain text, not executable
+markup, and fence languages that note applications execute (Obsidian Dataview/Templater,
+inline `$=` queries) are relabelled so a clipped page cannot run code in the viewer that opens
+it. Metadata (title, byline, description, site, license) and body text are stripped of C0/C1
+controls and bidi embedding characters; right-to-left marks are kept. A `rel=license` link is
+resolved against the page and dropped unless it is a plain HTTP(S) URL.
 
 Existing clips are **not retroactively repaired**. Re-clip old articles with the updated
-version if you intend to open their HTML/EPUB exports. Arbitrary edits made afterwards and
-vulnerabilities in third-party note viewers are outside wclip's guarantees.
+version if you intend to open their HTML/EPUB exports. The web front end in `web/` is the
+exception in practice: it sends its own CSP response header on every rendition it serves, so
+a file written before the `<meta>` policy existed is still sandboxed when read through it.
+Opening the same file from disk or in a note viewer keeps the older guarantee.
+Arbitrary edits made afterwards and vulnerabilities in third-party note viewers are
+outside wclip's guarantees.
 
 ## Networking and resource boundaries
 
 The Node HTTP client checks the resolved address actually handed to the connection, repeats
 validation on redirects, refuses URL credentials and HTTPS-to-HTTP downgrades, and limits wire
-and decompressed bodies. Image downloads have per-image and aggregate limits. Local HTML and
-config inputs are also size-limited. Limits reduce denial-of-service exposure; they are not
+and decompressed bodies. Pages/local HTML are capped at 20 MiB, each image at 15 MiB, and
+EPUBs at 128 unique image requests and 60 MiB of retained image payload. Scheduling stops when
+the image budget fills; already in-flight requests can still finish (at most four downloads).
+Config files and arXiv metadata responses are capped at 1 MiB; OpenRouter responses at 2 MiB.
+Limits reduce denial-of-service exposure; they are not
 proof that every possible hostile document will parse in constant time or memory. The limits
 cover Node downloads and extractor input; explicitly enabled Chromium can still consume CPU
-and memory while running page scripts and buffering browser resources. Use OS-level resource
+and memory while running page scripts and buffering browser resources, although media,
+webfont and manifest responses are refused before they are buffered. Use OS-level resource
 limits if you need a hard budget for hostile JavaScript.
 
 Chromium is a distinct network client. Request interception and destination checks are
 additional safeguards, not a complete network sandbox: browser DNS resolution/rebinding and
 browser-internal network paths cannot be treated as equivalent to the Node connection guard.
+Non-proxied WebRTC UDP is disabled at launch, but that flag set is still not egress isolation.
 For genuinely hostile JavaScript on a sensitive network, use an OS/container/VM with enforced
 egress restrictions, or leave the browser disabled. Do not expose wclip as a public service
 and assume its CLI flags provide service-grade SSRF containment.
@@ -57,14 +79,24 @@ and assume its CLI flags provide service-grade SSRF containment.
 
 - Config fields and ranges are validated, dangerous prototype keys are rejected, and custom
   YAML keys are escaped. Config contents must still be trusted.
+- A cookies file (`--cookies FILE`, `cookies_file`) is a credential. It is read at 1 MiB max,
+  names and values that could break out of a header are dropped, and no value is ever printed:
+  diagnostics carry a count or a host name only. Cookies are attached per request hop from the
+  jar, so a redirect to another host receives no domain cookies, and the jar is never passed as
+  a request header to image downloads. One exception is deliberate and worth knowing: a bare
+  `name=value` line with no domain becomes a wildcard entry (`*`, not secure) and is offered to
+  every host, including plain-HTTP redirect targets. Use a Netscape cookies.txt line with an
+  explicit domain when a cookie must not travel. Passing `--cookies` on a command line exposes only the
+  path, never the tokens; the file itself is as sensitive as a saved password.
 - New config files use mode 0600 and newly created config directories use mode 0700. Setup
   does not request API keys on an echoing prompt. Prefer `OPENROUTER_API_KEY` in the environment;
   do not put secrets in command-line arguments.
 - Notes use exclusive atomic creation unless overwrite was explicitly authorised. Replacement
   writes are atomic and destination-file symlinks are refused. Output directories and their
   parent path components remain user-controlled/trusted; this is not a filesystem jail.
-- Filenames are bounded by UTF-8 bytes. Diagnostics and extracted Markdown remove terminal
-  control characters, while the status renderer adds only its own terminal controls.
+- Filenames are bounded by UTF-8 bytes. Diagnostics, metadata and extracted Markdown remove
+  terminal control characters and bidi embedding characters, while the status renderer adds
+  only its own terminal controls.
 
 ## Builds and dependencies
 
@@ -86,5 +118,6 @@ findings because this one fixture is expected.
 ## Reporting
 
 Do not paste API keys, confidential clips, or exploit payloads containing real internal data
-into a public issue. Use GitHub private vulnerability reporting if enabled; otherwise arrange
-a private reporting channel with the maintainer before sharing sensitive details.
+into a public issue. GitHub private vulnerability reporting is enabled on this repository: use
+the "Report a vulnerability" button on the Security tab. If that is unavailable to you, arrange a
+private channel with the maintainer before sharing sensitive details.

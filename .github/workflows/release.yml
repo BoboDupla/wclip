@@ -17,7 +17,23 @@ defaults:
     shell: bash
 
 jobs:
+  # The web front end is stdlib Python with its own suite against a real HTTP server;
+  # npm test never touches it, so it gets its own required job.
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run the web front end tests
+        run: python3 web/test_server.py
+
   build:
+    needs: web
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -32,10 +48,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            tooling/package-lock.json
+          # No npm cache here on purpose: this job runs on a tag and its output is
+          # published, so a poisoned cache could substitute dependencies into a release.
 
       - name: Set scratch directory
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
@@ -65,7 +79,7 @@ jobs:
 
       - name: Audit production and bootstrap tooling dependencies
         run: |
-          npm audit --omit=dev --audit-level=high
+          npm audit --omit=dev --audit-level=moderate
           npm audit --prefix tooling --audit-level=high
 
       # Bun's npm lifecycle installer is deliberately not run. Use the native binary
@@ -86,6 +100,13 @@ jobs:
       - run: npm run build:bin
       - run: npm run build:js
 
+      # Ship the installer as a release asset so `.../releases/latest/download/install.sh`
+      # is immutable and checksummed like the binaries it fetches.
+      - name: Stage installer
+        run: |
+          sh -n install.sh
+          cp install.sh build/install.sh
+
       # Chromium is opt-in; the loopback-only smoke fixture explicitly allows private IPs.
       - name: Smoke-test the x64 binaries and Node bundle
         env:
@@ -99,12 +120,12 @@ jobs:
         working-directory: build
         run: |
           sha256sum wclip-linux-x64 wclip-linux-x64-baseline wclip-linux-arm64 \
-            wclip-node.js wclip-bun.js > SHA256SUMS
+            wclip-node.js wclip-bun.js install.sh > SHA256SUMS
           sha256sum --strict --check SHA256SUMS
 
       - name: Upload tested release files
         id: upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wclip-release
           if-no-files-found: error
@@ -116,6 +137,7 @@ jobs:
             build/wclip-linux-arm64
             build/wclip-node.js
             build/wclip-bun.js
+            build/install.sh
             build/SHA256SUMS
 
   # Private repositories require GitHub Enterprise Cloud for attestations. This
@@ -131,7 +153,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.build.outputs.artifact-id }}
           path: build
@@ -147,6 +169,7 @@ jobs:
             build/wclip-linux-arm64
             build/wclip-node.js
             build/wclip-bun.js
+            build/install.sh
 
   publish:
     needs: [build, attest]
@@ -160,7 +183,7 @@ jobs:
       contents: write
     # Do not check out or execute repository/dependency code in this job.
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.build.outputs.artifact-id }}
           path: build
@@ -179,4 +202,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${pre[@]}" --verify-tag \
             --title "wclip $GITHUB_REF_NAME" --generate-notes \
             wclip-linux-x64 wclip-linux-x64-baseline wclip-linux-arm64 \
-            wclip-node.js wclip-bun.js SHA256SUMS
+            wclip-node.js wclip-bun.js install.sh SHA256SUMS

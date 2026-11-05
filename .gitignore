@@ -4,3 +4,9 @@ build/
 dist-packages/
 *.tgz
 .tools/
+
+# web front end runtime state
+web/jobs/
+web/__pycache__/
+*.log
+

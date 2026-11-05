@@ -84,8 +84,16 @@ export function checkedUrl(input: string | URL, policy: Pick<RequestPolicy, 'all
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (isIP(host)) assertPublicAddress(host, policy);
-  if (policy.allowPrivate !== true && /(^|\.)(localhost|local|internal)\.?$/i.test(host)) {
-    throw new NetworkPolicyError(`blocked non-public hostname ${host}`);
+  if (policy.allowPrivate !== true) {
+    // Name-based refusal is a usability guard, not the security boundary (the connection
+    // guard is), but it stops the obvious intranet shapes from reaching a split-horizon
+    // resolver that answers with a publicly routable address.
+    if (/(^|\.)(localhost|local|internal|localdomain|lan|home\.arpa|corp|intranet)\.?$/i.test(host)) {
+      throw new NetworkPolicyError(`blocked non-public hostname ${host}`);
+    }
+    if (!isIP(host) && !host.includes('.')) {
+      throw new NetworkPolicyError(`blocked non-public single-label hostname ${host} (use --allow-private for intranet names)`);
+    }
   }
   return url;
 }

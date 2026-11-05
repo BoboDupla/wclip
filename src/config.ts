@@ -16,7 +16,8 @@ export interface Config {
   timeout: number;
   progress: boolean;
   allow_private: boolean;
-  openrouter: { enabled: boolean; api_key: string; model: string; timeout: number };
+  cookies_file: string;
+  openrouter: { enabled: boolean; api_key: string; model: string; timeout: number; data_collection: 'allow' | 'deny' };
   properties: string[];
   custom_properties: Record<string, unknown>;
   browser: { mode: 'auto' | 'never'; executable: string; min_words: number; timeout: number };
@@ -40,7 +41,9 @@ export const DEFAULTS: Config = {
   timeout: 30,
   progress: true,
   allow_private: false,
-  openrouter: { enabled: false, api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60 },
+  // Netscape cookies.txt for subscriber-only sites. Empty = send no cookies at all.
+  cookies_file: '',
+  openrouter: { enabled: false, api_key: '', model: 'z-ai/glm-5.3-flash', timeout: 60, data_collection: 'allow' },
   properties: ['title', 'source', 'author', 'published', 'created', 'description', 'tags', 'read', 'reading time'],
   custom_properties: {},
   browser: { mode: 'never', executable: '', min_words: 50, timeout: 45 },
@@ -82,6 +85,14 @@ function rejectUnsafeKeys(value: unknown, path = 'config', depth = 0): void {
   }
 }
 
+// Every key the rest of the code reads. Anything else in the file is accepted but
+// unused, which is worth one warning: a dead key looks like configuration.
+const KNOWN_KEYS = new Set([
+  'articles_dir', 'reading_wpm', 'include_images', 'make_html', 'make_epub', 'timeout',
+  'progress', 'allow_private', 'cookies_file', 'openrouter', 'properties',
+  'custom_properties', 'browser', 'boilerplate',
+]);
+
 export function validateConfig(value: unknown): Config {
   rejectUnsafeKeys(value);
   if (!isObj(value)) die('config must be a mapping');
@@ -97,6 +108,7 @@ export function validateConfig(value: unknown): Config {
   };
   string(c.articles_dir, 'articles_dir');
   if (!(c.articles_dir as string).trim()) fail('articles_dir', 'a non-empty path');
+  string(c.cookies_file, 'cookies_file');
   number(c.reading_wpm, 'reading_wpm', 1, 10000);
   number(c.timeout, 'timeout', 1, 600);
   for (const k of ['include_images', 'make_html', 'make_epub', 'progress', 'allow_private']) {
@@ -107,6 +119,8 @@ export function validateConfig(value: unknown): Config {
   if (typeof orc.enabled !== 'boolean') fail('openrouter.enabled', 'true or false');
   string(orc.api_key, 'openrouter.api_key'); string(orc.model, 'openrouter.model');
   number(orc.timeout, 'openrouter.timeout', 1, 600);
+  if (orc.data_collection !== 'allow' && orc.data_collection !== 'deny')
+    fail('openrouter.data_collection', 'allow or deny');
   if (!isObj(c.browser)) fail('browser', 'a mapping');
   const b = c.browser as Record<string, unknown>;
   if (b.mode !== 'never' && b.mode !== 'auto') fail('browser.mode', 'never or auto');
@@ -120,6 +134,9 @@ export function validateConfig(value: unknown): Config {
   }
   if (!isObj(c.boilerplate)) fail('boilerplate', 'a mapping of hosts to selector lists');
   for (const [host, sels] of Object.entries(c.boilerplate as Record<string, unknown>)) strings(sels, `boilerplate.${host}`);
+  for (const key of Object.keys(c)) {
+    if (!KNOWN_KEYS.has(key)) warn(`config: unknown key "${key}" is ignored`);
+  }
   return c as unknown as Config;
 }
 
@@ -153,6 +170,11 @@ progress: true
 # Allow local/intranet destinations only when you intend to clip them.
 allow_private: false
 
+# Netscape cookies.txt (exported from a logged-in browser) for sites that serve the full
+# text only to subscribers. Cookies are sent to the host they belong to and nowhere else.
+# Empty = send no cookies. --cookies FILE overrides this for one run.
+cookies_file: ""
+
 # OpenRouter receives up to 15000 characters of the article when explicitly enabled.
 # An API key alone does not enable it. Prefer OPENROUTER_API_KEY in the environment.
 # Saved HTML/private content still requires --llm for that run.
@@ -161,6 +183,9 @@ openrouter:
   api_key: ${q(c.api_key)}
   model: ${q(c.model)}
   timeout: 60
+  # allow | deny. "deny" asks OpenRouter to skip providers that may retain or train on
+  # prompts. It can raise the price or fail if the model has no such provider.
+  data_collection: allow
 
 # Which frontmatter properties appear, and in what order.
 # Known: title, source, author, published, created,

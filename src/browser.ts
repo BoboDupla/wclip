@@ -1,25 +1,64 @@
 // Opt-in JavaScript rendering through sandboxed Chromium. Keep Chromium's own
 // HeadlessChrome UA: this is for rendering, not impersonating a desktop browser.
-import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
-import type { APIResponse, Browser } from 'playwright-core';
+import { statSync } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
+import type { APIResponse, Browser, BrowserContext } from 'playwright-core';
+import type { CookieJar } from './cookies.js';
 import type { Page } from './fetch.js';
 import { checkBrowserTarget, NetworkPolicyError, type RequestPolicy } from './network-policy.js';
 import { envVar, warn } from './util.js';
 
 const SYSTEM_BROWSERS = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'brave-browser'];
 const MAX_REDIRECTS = 10;
+// Everything is fetched through route.fetch(), which buffers the whole body in process
+// memory. Article text never needs audio/video streams or webfonts, so refuse them
+// before a hostile page can allocate gigabytes.
+const BLOCKED_RESOURCES = new Set(['media', 'font', 'manifest', 'texttrack']);
+// Chromium's own UDP-based WebRTC paths bypass route interception entirely, and
+// <link rel=preconnect>/dns-prefetch resolve names without ever reaching
+// context.route(). Neither flag is a sandbox on its own; they close the cheap holes.
+const CHROMIUM_ARGS = [
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--enforce-webrtc-ip-permission-check',
+  '--dns-prefetch-disable',
+  '--disable-features=NetworkPrediction',
+];
 
 function onPath(name: string): string | null {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    // A relative PATH entry (".", "") would resolve against the current directory.
+    if (!isAbsolute(dir)) continue;
     const p = join(dir, name);
-    if (dir && existsSync(p)) return p;
+    try {
+      const st = statSync(p); // stat, not existsSync: a directory is not an executable
+      if (st.isFile() && (st.mode & 0o111)) return p;
+    } catch { /* not there, not executable */ }
   }
   return null;
 }
 
+// Subscriber cookies go into the browser context, not into route headers: Chromium then
+// applies its own per-host and Secure rules, and the route handler never forwards them
+// across origins. Only cookies matching the starting URL are loaded at all.
+async function applyCookies(context: BrowserContext, url: string, cookies: CookieJar): Promise<void> {
+  const matched = cookies.matches(url);
+  const host = new URL(url).hostname;
+  if (!matched.length) {
+    warn(`headless browser: no cookie in the file matches ${host}`);
+    return;
+  }
+  await context.addCookies(matched.map(c => ({
+    name: c.name, value: c.value,
+    domain: c.domain === '*' ? host : c.domain,
+    path: c.path, secure: c.secure,
+    expires: c.expires > 0 ? c.expires : -1, // Playwright's sentinel for a session cookie
+  })));
+}
+
 export async function fetchWithBrowser(url: string, executable: string, timeoutSec: number,
-                                       policy: Pick<RequestPolicy, 'allowPrivate'> = {}): Promise<Page | null> {
+                                       policy: Pick<RequestPolicy, 'allowPrivate'> = {},
+                                       cookies?: CookieJar): Promise<Page | null> {
   if (!Number.isFinite(timeoutSec) || timeoutSec <= 0 || timeoutSec * 1000 > 0x7fffffff) {
     warn('headless browser: timeout must be a positive, finite number of seconds');
     return null;
@@ -61,7 +100,7 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     const errors: string[] = [];
     for (const exe of [...new Set(candidates)]) {
       try {
-        browser = await chromium.launch({ executablePath: exe, headless: true, chromiumSandbox: true, timeout: remaining() });
+        browser = await chromium.launch({ executablePath: exe, headless: true, chromiumSandbox: true, args: CHROMIUM_ARGS, timeout: remaining() });
         // A launch that races the deadline must not leave a browser process behind.
         if (finished) { await browser.close(); throw new Error(`timed out after ${timeoutSec} s`); }
         break;
@@ -72,6 +111,7 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     }
     if (!browser) throw new Error('no sandboxed Chromium could be started; install Chromium with working sandbox support or set browser.executable.\n  ' + errors.join('\n  '));
     const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: 'block' });
+    if (cookies) await applyCookies(context, initial.href, cookies);
     const page = await context.newPage();
     let navigationRedirect: string | undefined;
     // WebSockets are not needed for an article snapshot. Block the handshake
@@ -87,6 +127,12 @@ export async function fetchWithBrowser(url: string, executable: string, timeoutS
     await context.route('**/*', async (route, request) => {
       let response: APIResponse | undefined;
       try {
+        // Playwright's request object always reports a type; tolerate its absence so a
+        // hand-built test double cannot silently skip the policy.
+        if (BLOCKED_RESOURCES.has(request.resourceType?.() ?? '')) {
+          await route.abort('blockedbyclient');
+          return;
+        }
         let target = await checkBrowserTarget(request.url(), policy);
         let method = request.method();
         let postData = request.postDataBuffer() ?? undefined;

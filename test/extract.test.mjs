@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extract } from '../dist/extract.js';
+import { extract, separateCaptionLabels, unwrapProseCodeBlock } from '../dist/extract.js';
 import { GOLDEN, slugs, fixtureHtml, fixtureUrl, extractOptions } from './helpers.mjs';
 
 const results = {};
@@ -84,8 +84,73 @@ test('boilerplate selectors come from config; a bad selector is skipped, not fat
   assert.doesNotMatch(a.content, /^> /m);
 });
 
+test('lede that repeats the meta description is kept whole, not cut to a fragment', async () => {
+  // A standfirst that the page also puts in <meta name="description"> must survive: dropping it
+  // deleted real prose, and slicing the Markdown by the description's plain-text length (the
+  // paragraph carries ** and * the description does not) left "gy*.**" at the top of the note.
+  const lede = 'Why do our grids show a brief spike in electricity demand every minute? A team has now '
+    + 'demonstrated that this is due to regular power checks carried out by large-scale battery storage '
+    + 'systems, as the team reports in an article published in Nature Energy.';
+  const html = `<!doctype html><html><head><title>Grid</title>
+<meta name="description" content="${lede}"><meta property="og:description" content="${lede}"></head>
+<body><article><h1>Grid</h1>
+<p><b>${lede.replace('Nature Energy', '<i>Nature Energy</i>')}</b></p>
+<p>Tennet Germany, the largest transmission system operator in Germany, has observed over several years
+that the frequency in the European power grid dips briefly every 60 seconds, for reasons nobody could
+explain until now.</p>
+<p>Third paragraph, long enough that content extraction keeps the article body and does not treat this
+page as a stub of navigation links.</p>
+</article></body></html>`;
+  const a = await extract(html, 'https://example.org/news/grid', { boilerplate: {}, includeImages: true });
+  assert.equal(a.content.split('\n')[0], `**${lede.replace('Nature Energy', '*Nature Energy*')}**`);
+  assert.match(a.content, /60 seconds/);
+});
+
+test('a caption welded onto the sentence above it gets its own paragraph', () => {
+  assert.equal(
+    separateCaptionLabels('The grid dips every minute.Credit: Charnchai Guoy | iStock / Getty Images Plus'),
+    'The grid dips every minute.\n\nCredit: Charnchai Guoy | iStock / Getty Images Plus');
+  // German labels, a byline-style caption and a closing quote after the punctuation.
+  assert.equal(separateCaptionLabels('Die Frequenz sinkt jede Minute.Foto: Forschungszentrum Jülich'),
+    'Die Frequenz sinkt jede Minute.\n\nFoto: Forschungszentrum Jülich');
+  assert.equal(separateCaptionLabels('It dips every minute.Photo by Regine Panknin'),
+    'It dips every minute.\n\nPhoto by Regine Panknin');
+  assert.equal(separateCaptionLabels('“It dips every minute.”Quelle: Tennet'),
+    '“It dips every minute.”\n\nQuelle: Tennet');
+});
+
+test('prose that merely mentions a caption label is not split', () => {
+  for (const md of [
+    'He paid by card. Credit: the invoice was never sent.', // spaced label is ordinary prose
+    'The credit: line was empty.',
+    'See fig. 3 for the comparison.',
+    'Version 1.2.Photo graphs are elsewhere.', // "Photo graphs" is not a caption label
+  ]) assert.equal(separateCaptionLabels(md), md);
+});
+
 test('include_images: false drops images', async () => {
   const slug = 'ars-meta-yandex';
   const a = await extract(fixtureHtml(slug), fixtureUrl(slug), { ...extractOptions, includeImages: false });
   assert.doesNotMatch(a.content, /!\[/);
+});
+
+test('a post that is one unlabelled <pre> of prose is unwrapped into paragraphs', async () => {
+  const { content } = await get('alxgsv-let-me-check');
+  assert.doesNotMatch(content, /^```/m);
+  assert.match(content, /^That morning I woke up at 6:58, two minutes before the alarm\./);
+  assert.match(content, /\n\nFor now\.$/);
+});
+
+const FENCE = '```';
+test('a fenced block stays fenced unless it is prose and the whole article', () => {
+  const prose = 'The left one in my toaster always burns; my toaster has a favorite side. ' +
+    'And that was the only thing I was sure of that morning. I always iron a shirt.';
+  const block = (lang, body) => FENCE + lang + '\n' + body + '\n' + FENCE;
+  const body = prose + '\n\n' + prose;
+  assert.equal(unwrapProseCodeBlock(block('', body)), body);
+  // a language tag, a code shape, or other text around the block all mean "leave it alone"
+  assert.equal(unwrapProseCodeBlock(block('js', body)), null);
+  assert.equal(unwrapProseCodeBlock(block('', 'const x = 1;\n\nconsole.log(x);')), null);
+  assert.equal(unwrapProseCodeBlock('Intro.\n\n' + block('', body)), null);
+  assert.equal(unwrapProseCodeBlock(block('', prose)), null); // one paragraph is no article
 });
