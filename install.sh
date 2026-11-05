@@ -117,7 +117,7 @@ fi
 # SHA256SUMS comes from the same release as the binary, so it only proves the
 # download is intact. The build provenance attestation is what proves the binary
 # came out of this repository's workflow; check it when gh is available.
-if command -v gh >/dev/null 2>&1; then
+if command -v gh >/dev/null 2>&1 && gh attestation --help >/dev/null 2>&1; then
 	echo "verifying build provenance for $asset"
 	if ! gh attestation verify "$tmp/$asset" -R "$repo" >/dev/null 2>&1; then
 		if [ "${WCLIP_REQUIRE_ATTESTATION:-0}" = 1 ]; then
@@ -126,7 +126,17 @@ if command -v gh >/dev/null 2>&1; then
 		fi
 		echo "install.sh: WARNING: no matching build attestation for $asset; checksums passed, provenance unverified" >&2
 	fi
+elif command -v gh >/dev/null 2>&1; then
+	if [ "${WCLIP_REQUIRE_ATTESTATION:-0}" = 1 ]; then
+		echo "install.sh: WCLIP_REQUIRE_ATTESTATION=1, but this gh has no attestation command (needs 2.49+)" >&2
+		exit 1
+	fi
+	echo "note: this gh is too old for 'gh attestation' (needs 2.49+); provenance not verified" >&2
 else
+	if [ "${WCLIP_REQUIRE_ATTESTATION:-0}" = 1 ]; then
+		echo "install.sh: WCLIP_REQUIRE_ATTESTATION=1, but gh is not installed to verify it" >&2
+		exit 1
+	fi
 	echo "note: gh is not installed, so build provenance was not verified (checksums only)" >&2
 fi
 
