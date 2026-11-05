@@ -1,0 +1,20 @@
+[Unit]
+Description=wclip web front end (clip.shtfn.xyz)
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/apps/wclip-web
+EnvironmentFile=/home/deploy/.config/wclip-web/env
+Environment="PATH=/home/deploy/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="SHELL=/usr/bin/zsh"
+ExecStart=/usr/bin/python3 /home/deploy/apps/wclip-web/server.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

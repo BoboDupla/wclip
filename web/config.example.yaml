@@ -1,0 +1,31 @@
+# wclip config for the web front end. Deliberately separate from
+# ~/.config/wclip/config.yaml: no cookies, no headless browser, LLM optional.
+# Pass it with WCLIP_CONFIG (server.py does this) or copy to
+# ~/.config/wclip-web/config.yaml.
+articles_dir: ~/articles
+
+reading_wpm: 200
+include_images: true
+make_html: true
+make_epub: true
+timeout: 30
+progress: false
+allow_private: false
+
+# A web request must never carry subscriber cookies.
+cookies_file: ''
+default_tags: []
+
+openrouter:
+  enabled: false
+  # Or leave empty and set OPENROUTER_API_KEY in the service environment.
+  api_key: ''
+  model: z-ai/glm-5.3-flash
+  timeout: 60
+  data_collection: allow
+
+browser:
+  mode: never
+  executable: ''
+  min_words: 50
+  timeout: 45

@@ -249,6 +249,14 @@ The fetch tests run a local HTTP server: the tante decoy, a site that refuses no
 clients, a windows-1250 page, and a JavaScript-only page. The real-Chromium test is skipped
 when no Chromium is found.
 
+## Web front end
+
+`web/` holds an optional single-user web UI over the same CLI: paste a URL, get the
+article as a page plus Markdown and EPUB downloads, and a reading list over the notes
+folder. It is one stdlib-only Python file that runs `wclip` as a subprocess, so
+extraction and rendering stay in the CLI. See `web/README.md` for the systemd unit, the
+Caddy block and the paths it expects.
+
 ## Layout
 
 - `src/cli.ts` flags and the clip flow
