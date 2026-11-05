@@ -299,6 +299,11 @@ host. Change them before using this elsewhere:
   without the second every clip fails to resolve hostnames. `SystemCallFilter` is
   deliberately absent: it is the setting most likely to break Node in ways that are
   hard to attribute, and it can be added once the filtered run is known to work.
+- The unit also points `npm_config_cache` at `~/.local/share/wclip-npm-cache`,
+  because the default `~/.npm` is not writable under `ProtectHome=read-only` and the
+  launcher runs `npm ci` when the wclip sources change. After pulling a new wclip,
+  run `wclip --version` once in your shell so the rebuild happens outside the
+  sandbox; otherwise the first web clip does it and pays the download.
 - `install.sh`: `APP=/home/deploy/apps/wclip-web` and the Caddy site name
   `clip.shtfn.xyz` in `caddy-clip.snippet`. The script checks that Caddy still
   validates and restores its backup if it does not.

@@ -10,6 +10,9 @@ WorkingDirectory=/home/deploy/apps/wclip-web
 EnvironmentFile=/home/deploy/.config/wclip-web/env
 Environment="PATH=/home/deploy/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="SHELL=/usr/bin/zsh"
+# npm's cache lives in ~/.npm by default, which ReadWritePaths below deliberately
+# does not open; point it somewhere the rebuild is allowed to write instead.
+Environment="npm_config_cache=/home/deploy/.local/share/wclip-npm-cache"
 ExecStart=/usr/bin/python3 /home/deploy/apps/wclip-web/server.py
 Restart=always
 RestartSec=2
@@ -25,7 +28,7 @@ ProtectHome=read-only
 # Everything the app legitimately writes: notes plus renditions, its own config and
 # credentials, and the wclip checkout (the launcher recompiles dist/ and installs
 # node_modules there when the sources change).
-ReadWritePaths=/home/deploy/apps/dufs/data/articles /home/deploy/.config/wclip-web /home/deploy/.local/share/wclip
+ReadWritePaths=/home/deploy/apps/dufs/data/articles /home/deploy/.config/wclip-web /home/deploy/.local/share/wclip /home/deploy/.local/share/wclip-npm-cache
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
