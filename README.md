@@ -218,6 +218,9 @@ boilerplate:          # CSS selectors removed before extraction, per host; "*" =
 A host listed under `boilerplate` replaces that host's built-in list; other hosts keep theirs.
 `properties` also accepts `site` and `license` (off by default).
 
+Unknown keys are not rejected (they are passed through and unused), but they are named in a
+warning, because a dead key in a config file looks like it does something.
+
 ## What it does with awkward pages
 
 - Extraction keeps blockquotes, subheadings and images that Defuddle's defaults drop;

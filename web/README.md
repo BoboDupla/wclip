@@ -49,8 +49,11 @@ Runtime state:
   600.
 - `~/.config/wclip-web/env` holds environment secrets for the unit, mode 600.
 
-Credentials live in their own file on purpose: `wclip` validates its config
-strictly and would reject unknown keys.
+Credentials live in their own file on purpose, and not because `wclip` would
+reject them: it checks the keys it knows and passes unknown ones through silently.
+That is precisely why a password does not belong in a config the CLI is handed on
+every clip. (The same silence means a mistyped key in that file does nothing at
+all; only the keys listed above are read.)
 
 ## Configuration
 

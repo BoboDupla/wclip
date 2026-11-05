@@ -84,8 +84,8 @@ LIST_CACHE = {}
 
 
 # --- credentials and sessions --------------------------------------------
-# Kept in their own file: the wclip config is validated strictly by wclip and
-# would reject unknown keys.
+# Kept in their own file: wclip ignores unknown config keys rather than rejecting
+# them, so nothing would stop a password from sitting in a file the CLI reads.
 
 def parse_flat(text):
     out = {}

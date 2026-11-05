@@ -115,5 +115,6 @@ findings because this one fixture is expected.
 ## Reporting
 
 Do not paste API keys, confidential clips, or exploit payloads containing real internal data
-into a public issue. Use GitHub private vulnerability reporting if enabled; otherwise arrange
-a private reporting channel with the maintainer before sharing sensitive details.
+into a public issue. GitHub private vulnerability reporting is enabled on this repository: use
+the "Report a vulnerability" button on the Security tab. If that is unavailable to you, arrange a
+private channel with the maintainer before sharing sensitive details.
