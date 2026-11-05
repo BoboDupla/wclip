@@ -185,7 +185,9 @@ test('real sandboxed Chromium renders JS and follows guarded document redirects'
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     assert.equal(await fetchWithBrowser(`${base}/redirect`, chromiumPath, 10), null, 'default blocks local navigation');
-    const page = await fetchWithBrowser(`${base}/redirect`, chromiumPath, 15, { allowPrivate: true });
+    // 30 s, not 15: this budget includes a cold Chromium launch, and a loaded CI runner
+    // once took 15.3 s and failed the assertion below as if the sandbox were broken.
+    const page = await fetchWithBrowser(`${base}/redirect`, chromiumPath, 30, { allowPrivate: true });
     assert.ok(page, 'Chromium must start with its sandbox; CI must provide a functioning sandbox');
     assert.match(page.html, /<div id="result">rendered securely<\/div>/);
     assert.equal(page.url, `${base}/page`);

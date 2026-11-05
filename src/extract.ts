@@ -120,22 +120,53 @@ const decode = (s: string) =>
     .replace(/&#(\d+);/g, (_, d: string) => fromCode(Number.parseInt(d, 10)))
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
-function postprocess(md: string, description: string): string {
+// Fix 7: a figure whose image Defuddle drops loses the block boundary with its caption, so the
+// caption is welded onto the last sentence ("...for AI training.Credit: iStock / Getty"). The text
+// is all there, only the separator is missing. The tell is a caption label following sentence
+// punctuation with no space at all: "wording. Credit: ..." is ordinary prose and stays put.
+const CAPTION_LABELS = 'Credit|Caption|Source|Photo|Image|Picture|Illustration|Figure|Screenshot|Graphic|Video|Bild|Bildquelle|Foto|Quelle|Grafik|Abbildung';
+const CAPTION_LABEL = String.raw`(?:(?:${CAPTION_LABELS})\s*:|(?:Photo|Image|Picture|Illustration|Screenshot|Video)\s+by\b)`;
+
+export function separateCaptionLabels(md: string): string {
+  return md.replace(new RegExp(String.raw`([.!?]["”')\]]?)(?=${CAPTION_LABEL})`, 'g'), '$1\n\n');
+}
+
+// Fix 8: some sites (alxgsv's terminal-themed blog among them) put the whole post inside one
+// <pre>, so the entire article arrives as a single unlabelled fenced block: a wall of monospace
+// in the note, the HTML rendition and the EPUB. Only an article that is nothing but that one
+// block is unwrapped, and only when its text reads as prose, so an article that merely contains
+// a code listing, or a page that really is one snippet, is left untouched.
+export function unwrapProseCodeBlock(md: string): string | null {
+  const m = /^```([^\n`]*)\n([\s\S]*?)\n?```$/.exec(md.trim());
+  if (!m || m[1].trim()) return null; // a language tag means somebody meant it as code
+  const text = m[2];
+  if (text.length < 200) return null;
+  const paras = text.split(/\n[ \t]*\n/).map(p => p.trim()).filter(Boolean);
+  if (paras.length < 2) return null;
+  // Code punctuation (braces, angle brackets, semicolons, assignments, arrows, comment markers)
+  // is rare in prose and pervasive in code, including the minified single-line kind.
+  if ((text.match(/[{}<>;=]|=>|::|\/\/|\/\*/g) ?? []).length / text.length > 0.01) return null;
+  // Prose has sentence punctuation; code mostly has none, unless it is all comments.
+  if ((text.match(/[.!?]["'”’)]?(\s|$)/g) ?? []).length < paras.length) return null;
+  // Indentation inside a paragraph is a code shape; wrapped prose is not indented.
+  if (/^[ \t]{2,}\S/m.test(text)) return null;
+  return paras.map(p => p.split('\n').map(l => l.trim()).join(' ')).join('\n\n');
+}
+
+function postprocess(md: string): string {
   // Defuddle escapes "<trait>" but not "<trait\_description>"; unescaped, it reads as an HTML tag and vanishes.
   md = md.replace(/(^|[^\\])<(\/?[a-z][a-z0-9]*(?:\\_[a-z0-9]+)+)>/gm, '$1\\<$2>');
-  // With content patterns off, Defuddle no longer drops a lede that repeats the description,
-  // and it leaves an identical paragraph twice in a row (Ars image credits).
+  md = separateCaptionLabels(md);
+  // With content patterns off, Defuddle leaves an identical paragraph twice in a row
+  // (Ars image credits). It also leaves a lede that repeats the page's description, which
+  // is what we want: many sites put the opening paragraph in the description verbatim, and
+  // dropping it deleted real prose. Slicing it off by `description.length` cut midway through
+  // the Markdown instead (the paragraph carries ** and * markers the plain-text description
+  // does not), leaving a fragment like "gy*.**" at the top of the note.
   const paras = md.split(/\n\s*\n/).filter((p, i, a) => i === 0 || norm(p) !== norm(a[i - 1]));
-  const i = paras.findIndex(p => norm(p).length > 0);
-  const d = norm(description);
-  if (i >= 0 && d && norm(paras[i]).startsWith(d)) {
-    const rest = paras[i].slice(description.length).trim();
-    if (norm(paras[i]) === d || norm(rest) === norm(paras[i]).slice(d.length).trim()) paras[i] = rest;
-    if (!paras[i]) paras.splice(i, 1);
-  }
   // Fix 3: parse raw HTML chunks once, rather than retrying an unbounded regex
   // at every unmatched <math>. Never decode annotation text into HTML markup.
-  return sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
+  const out = sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
     if (!/<math\b/i.test(raw)) return raw;
     const { document } = parseHTML(`<html><body>${raw}</body></html>`);
     const prefix = `WCTEX${randomUUID().replace(/-/g, '')}PH`;
@@ -149,6 +180,7 @@ function postprocess(md: string, description: string): string {
     }
     return document.body.innerHTML.replace(new RegExp(`${prefix}(\\d+)Z`, 'g'), (_, i: string) => tex[Number(i)]);
   });
+  return unwrapProseCodeBlock(out) ?? out;
 }
 
 // Fix 6: lead image. Defuddle drops some hero images that readers do see (Ars piracy article:
@@ -258,7 +290,7 @@ export async function extract(html: string, url: string, opts: ExtractOptions): 
     removeImages: !opts.includeImages,
   });
   const meta = await fixMeta(r, url, document as unknown as Document, opts);
-  let content = postprocess(r.content ?? '', meta.description);
+  let content = postprocess(r.content ?? '');
   if (opts.includeImages) content = restoreLeadImage(content, ogImage, lead);
   // C0/C1 controls and bidi embeddings are not article content: they corrupt --stdout,
   // terminals and EPUB XHTML, and can reorder visible text (Trojan Source). U+200E,

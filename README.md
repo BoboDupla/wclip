@@ -17,6 +17,25 @@ rather than by who wrote it.
 
 ## Install
 
+**One-line install:** fetches the release binary for your architecture, verifies it
+against `SHA256SUMS`, smoke-runs it, and drops it in `~/.local/bin`:
+
+```sh
+curl -fsSL https://github.com/BoboDupla/wclip/releases/latest/download/install.sh | sh
+```
+
+Pin a version or change the destination, and note the `-s --`, which is needed to pass
+arguments through a pipe:
+
+```sh
+curl -fsSL https://github.com/BoboDupla/wclip/releases/latest/download/install.sh \
+  | sh -s -- --version v0.5.1 --bin-dir ~/bin
+```
+
+If you would rather read it first, `install.sh` is a release asset and is listed in
+`SHA256SUMS`; `curl -fsSLO .../install.sh && sh install.sh` works too. It refuses musl
+systems (Alpine) instead of downloading a glibc binary that cannot run.
+
 **From a release:** each `v*` tag gets a GitHub Release with the files below and a
 `SHA256SUMS`. Download them from the releases page, or with the GitHub CLI:
 
@@ -73,18 +92,24 @@ wclip --init-config              write a default config file
   --browser                      fetch with the headless browser right away
   --no-browser                   never use the headless browser
   --html FILE                    extract from saved HTML (20 MiB limit); URL is the source
+  --cookies FILE                  send subscriber cookies (Netscape cookies.txt) to that host
   --llm                          explicitly send article text to OpenRouter for this run
   --no-llm                       never send article text to OpenRouter
   --allow-private                allow local/intranet page and image requests
   -v, --verbose                  sizes, HTTP status, timings, written files
   -q, --quiet                    no progress lines; warnings, errors, saved path only
   --no-progress                  plain lines instead of a live status line
+  --json                         print one JSON result object on stdout; implies quiet
 ```
 
 
 ## Output
 
-Progress goes to stderr, so `--stdout` still emits the note and nothing else. When stderr is a
+Progress goes to stderr, so `--stdout` still emits the note and nothing else. `--json` is for
+callers rather than people: it implies quiet, prints nothing on stderr, and ends with one object
+on stdout, `{"ok":true,"existing":false,"path":…,"title":…,"tags":[],"words":N,"warnings":[]}`
+or `{"ok":false,"error":…}` with exit code 1. An existing note is `ok:true, existing:true` and
+exit 0, because the caller asked what happened rather than for overwrite semantics. When stderr is a
 terminal, one line is redrawn in place with a spinner and the elapsed time:
 
 ```
@@ -132,6 +157,38 @@ Local/intranet destinations and HTTPS-to-HTTP redirects are blocked by default. 
 enabled and fails if that is unavailable; it is not a network-isolation boundary. See
 [SECURITY.md](SECURITY.md) for the threat model, limits and remaining browser-network caveats.
 
+## Paywalled pages
+
+A paywall is not a bug in the fetcher, and a 200 is not proof of a whole article. Two things
+make that visible instead of silently producing a two-paragraph note:
+
+- A non-2xx answer names the wall: `warning: honest UA: HTTP 401 from <url> (login or
+  subscription required)`, and the final error repeats it with what to do next.
+- Extraction that ends in a rights notice or a subscribe box, under 400 words, is reported as
+  `warning: incomplete article: the body ends with a copyright notice after 187 words`.
+  Long articles and short posts without those markers are left alone. This applies to `--html`
+  as well: a saved page can be a teaser.
+
+If you have a subscription, export cookies for that site as a Netscape `cookies.txt` (curl, most
+browser extensions, or `--cookies-from-browser` in yt-dlp produce that format) and point at it:
+
+```sh
+wclip https://www.example.com/paid-story --cookies ~/.config/wclip/cookies.txt
+```
+
+What the cookie jar will and will not do:
+
+- A cookie is only sent to the host it belongs to; the subdomain flag in the file is honoured,
+  and a bare `name=value` line applies to any host (use that deliberately).
+- A redirect to a different host drops the cookies: each hop's header is rebuilt from the jar.
+- `Secure` cookies are not sent over HTTP, expired ones are dropped, and path prefixes apply.
+- The headless browser loads them into a fresh context, so Chromium's own rules apply there.
+- Image downloads never carry them, and `--html` ignores them (a saved file needs no network).
+- Values are never logged. Diagnostics report a host name at most, e.g.
+  `no cookie in the file matches www.example.com; fetching unauthenticated`.
+
+No cookies are sent unless you ask: `cookies_file` is empty by default.
+
 ## Config
 
 `~/.config/wclip/config.yaml` (or `$WCLIP_CONFIG`).
@@ -142,6 +199,7 @@ articles_dir: ~/articles   # notes and their html/ and epub/ land here (default)
 reading_wpm: 200
 progress: true        # live status line on a terminal (false = plain lines)
 allow_private: false
+cookies_file: ""      # Netscape cookies.txt for subscriber sites; empty = send none
 openrouter:
   enabled: false
   api_key: ""         # prefer OPENROUTER_API_KEY in the environment
@@ -159,6 +217,9 @@ boilerplate:          # CSS selectors removed before extraction, per host; "*" =
 
 A host listed under `boilerplate` replaces that host's built-in list; other hosts keep theirs.
 `properties` also accepts `site` and `license` (off by default).
+
+Unknown keys are not rejected (they are passed through and unused), but they are named in a
+warning, because a dead key in a config file looks like it does something.
 
 ## What it does with awkward pages
 
@@ -195,6 +256,14 @@ diff.
 The fetch tests run a local HTTP server: the tante decoy, a site that refuses non-browser
 clients, a windows-1250 page, and a JavaScript-only page. The real-Chromium test is skipped
 when no Chromium is found.
+
+## Web front end
+
+`web/` holds an optional single-user web UI over the same CLI: paste a URL, get the
+article as a page plus Markdown and EPUB downloads, and a reading list over the notes
+folder. It is one stdlib-only Python file that runs `wclip` as a subprocess, so
+extraction and rendering stay in the CLI. See `web/README.md` for the systemd unit, the
+Caddy block and the paths it expects.
 
 ## Layout
 
