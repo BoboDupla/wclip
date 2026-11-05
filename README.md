@@ -99,12 +99,17 @@ wclip --init-config              write a default config file
   -v, --verbose                  sizes, HTTP status, timings, written files
   -q, --quiet                    no progress lines; warnings, errors, saved path only
   --no-progress                  plain lines instead of a live status line
+  --json                         print one JSON result object on stdout; implies quiet
 ```
 
 
 ## Output
 
-Progress goes to stderr, so `--stdout` still emits the note and nothing else. When stderr is a
+Progress goes to stderr, so `--stdout` still emits the note and nothing else. `--json` is for
+callers rather than people: it implies quiet, prints nothing on stderr, and ends with one object
+on stdout, `{"ok":true,"existing":false,"path":…,"title":…,"tags":[],"words":N,"warnings":[]}`
+or `{"ok":false,"error":…}` with exit code 1. An existing note is `ok:true, existing:true` and
+exit 0, because the caller asked what happened rather than for overwrite semantics. When stderr is a
 terminal, one line is redrawn in place with a spinner and the elapsed time:
 
 ```

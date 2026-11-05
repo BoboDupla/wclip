@@ -128,6 +128,10 @@ Useful flags:
   session secret is kept, so other devices stay signed in.
 - `--rotate-secret` generates a new signing secret and invalidates every session
   cookie. No restart needed.
+- `--invalidate-sessions` stamps `sessions_after` in `auth.yaml`: every cookie
+  issued before now stops working while the password and the secret stay as they
+  are. Sessions carry `iat` for exactly this, and a cookie without one counts as
+  old when the stamp exists.
 
 If no credentials are configured, every route answers `503` with instructions
 instead of serving openly. This is intentional: removing basic auth from the
@@ -271,10 +275,15 @@ ever serves more than one person, the whole model has to change.
 ## Roadmap
 
 The plan is to fold this into `wclip` as a `serve` subcommand, calling the
-pipeline in process instead of shelling out. That would remove the stderr
-parsing, the separate config and the helper script, and would ship with the
+pipeline in process instead of shelling out. That would remove the subprocess
+boundary, the separate config and the helper script, and would ship with the
 release binaries. The server would stay loopback-only there as well, with a
 reverse proxy expected to terminate TLS and handle exposure.
+
+The subprocess today is at least a narrow contract: `wclip` runs with `--json`
+and prints one object (`ok`, `path`, `existing`, `warnings`), so nothing here
+parses human-readable output. A reported path is still checked against the
+articles folder before it is served.
 
 ## Disclosure
 

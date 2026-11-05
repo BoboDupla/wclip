@@ -113,7 +113,7 @@ def write_auth(auth):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write("# wclip-web credentials. Private: mode 600.\n")
-            for k in ("user", "password_hash", "secret", "session_days"):
+            for k in ("user", "password_hash", "secret", "session_days", "sessions_after"):
                 if auth.get(k):
                     f.write("%s: %s\n" % (k, auth[k]))
         os.chmod(tmp, 0o600)
@@ -149,12 +149,15 @@ def sign(raw, secret):
 
 
 def make_session(user, secret, days):
-    raw = json.dumps({"u": user, "exp": int(time.time()) + days * 86400},
+    now = int(time.time())
+    raw = json.dumps({"u": user, "iat": now, "exp": now + days * 86400},
                      separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=") + "." + sign(raw, secret)
 
 
-def read_session(value, user, secret):
+def read_session(value, user, secret, not_before=0):
+    """The session's user, or None. `not_before` invalidates older sessions without
+    touching the signing secret: every cookie carries `iat`."""
     if not value or not user or not secret:
         return None
     try:
@@ -164,6 +167,8 @@ def read_session(value, user, secret):
             return None
         data = json.loads(raw)
         if data.get("u") != user or int(data.get("exp", 0)) < time.time():
+            return None
+        if int(data.get("iat", 0)) < int(not_before or 0):
             return None
         return data["u"]
     except Exception:  # noqa: BLE001
@@ -273,8 +278,9 @@ def cookie_header(value, max_age, secure):
     return "; ".join(bits)
 
 
-CLIPPED_RE = re.compile(r"^Clipped: (.+\.md)\s*$", re.M)
-EXISTS_RE = re.compile(r"already clipped: (.+?\.md)")
+# The CLI now reports its result as one JSON object on stdout (--json), so the web
+# layer never scrapes a human-readable line for a path. And nothing trusts it either:
+# the reported path still has to be inside the articles folder.
 
 
 def global_backoff(count):
@@ -496,6 +502,21 @@ def contained_in_articles(path):
     return real == root or real.startswith(root + os.sep)
 
 
+def parse_cli_result(stdout):
+    """The last JSON object wclip printed with --json, or None."""
+    for line in reversed((stdout or "").splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
 def valid_clip_url(url):
     """A http(s) URL we are willing to hand to the CLI as one argv item.
 
@@ -654,30 +675,32 @@ def run_job(job_id, url):
             p = subprocess.run(
                 # No --llm: the web config decides, so openrouter.enabled: false in
                 # the config really does keep article text off the network.
-                [WCLIP, url, "--quiet", "--no-progress"],
+                [WCLIP, url, "--quiet", "--no-progress", "--json"],
                 env=env, capture_output=True, text=True, timeout=300,
             )
             job["seconds"] = round(time.time() - t0, 1)
-            out = (p.stderr or "") + (p.stdout or "")
-            clipped = CLIPPED_RE.search(out)
-            exists = None if clipped else EXISTS_RE.search(out)
-            if exists:
-                path = exists.group(1)
-                if os.path.exists(path):
-                    job.update(paths=renditions(path), existing=True,
-                               stem=os.path.basename(path)[:-3],
-                               words=word_count(path), state="done")
-                    return
-            if p.returncode != 0 or not clipped:
-                job["error"] = out.strip()[-800:] or "wclip failed with no output"
+            result = parse_cli_result(p.stdout)
+            if result is None:
+                job["error"] = ((p.stderr or "").strip()
+                                or "wclip produced no JSON result")[-800:]
                 job["state"] = "failed"
                 return
-            path = clipped.group(1)
-            job.update(paths=renditions(path), existing=False,
+            if not result.get("ok"):
+                job["error"] = str(result.get("error") or (p.stderr or "").strip()
+                                   or "wclip failed")[-800:]
+                job["state"] = "failed"
+                return
+            path = str(result.get("path") or "")
+            # The path is a claim from a subprocess, not a fact: check it before serving.
+            if not path or not contained_in_articles(path) or not os.path.exists(path):
+                job["error"] = "wclip reported an unusable path: %r" % path
+                job["state"] = "failed"
+                return
+            job.update(paths=renditions(path), existing=bool(result.get("existing")),
                        stem=os.path.basename(path)[:-3],
                        words=word_count(path), state="done")
             job["warnings"] = "\n".join(
-                ln for ln in (p.stderr or "").splitlines() if ln.strip().startswith("warning"))
+                "warning: %s" % w for w in (result.get("warnings") or []))
         except subprocess.TimeoutExpired:
             job["error"] = "wclip timed out after 300s"
             job["state"] = "failed"
@@ -1086,7 +1109,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(503, PAGE.format(cls=THEME.get(), value="", body=body, refresh=""))
             return True
         cookie = self.cookie_value()
-        if read_session(cookie, auth["user"], auth.get("secret", "")):
+        if read_session(cookie, auth["user"], auth.get("secret", ""),
+                        int(auth.get("sessions_after") or 0)):
             return False
         print("%s auth reject: %s (%d chars) ua=%r host=%s"
               % (time.strftime("%H:%M:%S"),
@@ -1226,11 +1250,25 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_redirect("/job/" + job_id)
 
 
+def invalidate_sessions_cli():
+    auth = load_auth()
+    if not auth.get("user"):
+        print("no credentials configured yet; run --set-user NAME --set-password first",
+              file=sys.stderr)
+        return 1
+    auth["sessions_after"] = str(int(time.time()))
+    write_auth(auth)
+    print("every session issued before now is invalid; the password is unchanged")
+    return 0
+
+
 if __name__ == "__main__":
     if "--set-password" in sys.argv or any(a.startswith("--set-user") for a in sys.argv):
         sys.exit(set_password_cli(sys.argv[1:]))
     if "--rotate-secret" in sys.argv:
         sys.exit(rotate_secret_cli(sys.argv[1:]))
+    if "--invalidate-sessions" in sys.argv:
+        sys.exit(invalidate_sessions_cli())
     auth = load_auth()
     if auth.get("user") and not auth.get("secret"):
         # Sessions need a signing key; make one on first start after an upgrade.

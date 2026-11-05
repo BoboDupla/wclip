@@ -13,7 +13,9 @@ import base64
 import http.client
 import importlib.util
 import os
+import json
 import secrets
+import shlex
 import shutil
 import socket
 import sys
@@ -274,6 +276,100 @@ class Lockout(unittest.TestCase):
         srv.prune()
         self.assertNotIn("203.0.113.9", srv.LOGIN_FAILS)
         self.assertIn("198.51.100.7", srv.LOGIN_FAILS)
+
+
+class CliResult(unittest.TestCase):
+    def test_parses_the_last_object(self):
+        self.assertEqual(srv.parse_cli_result('{"ok":true,"path":"/a.md"}')["path"], "/a.md")
+        self.assertEqual(srv.parse_cli_result('noise\n{"ok":true}\n')["ok"], True)
+        self.assertIsNone(srv.parse_cli_result("Clipped: /somewhere.md"))
+        self.assertIsNone(srv.parse_cli_result('{"broken"'))
+        self.assertIsNone(srv.parse_cli_result(""))
+
+
+class Sessions(unittest.TestCase):
+    def test_iat_and_not_before(self):
+        token = srv.make_session("tester", "sekrit", 1)
+        self.assertEqual(srv.read_session(token, "tester", "sekrit"), "tester")
+        self.assertIsNone(srv.read_session(token, "tester", "sekrit", int(time.time()) + 60))
+        self.assertEqual(srv.read_session(token, "tester", "sekrit", int(time.time()) - 60),
+                         "tester")
+
+    def test_cookie_without_iat_is_invalidated(self):
+        raw = json.dumps({"u": "tester", "exp": int(time.time()) + 600},
+                         separators=(",", ":")).encode()
+        token = (base64.urlsafe_b64encode(raw).decode().rstrip("=") + "."
+                 + srv.sign(raw, "sekrit"))
+        self.assertEqual(srv.read_session(token, "tester", "sekrit"), "tester")
+        self.assertIsNone(srv.read_session(token, "tester", "sekrit", 1))
+
+    def test_sessions_after_round_trips_through_auth_file(self):
+        srv.write_auth({"user": "tester", "password_hash": "h", "secret": "s",
+                        "session_days": "1", "sessions_after": "12345"})
+        self.assertEqual(srv.load_auth().get("sessions_after"), "12345")
+
+
+class RunJob(unittest.TestCase):
+    """run_job against a fake CLI: the JSON contract and the path check."""
+
+    def setUp(self):
+        self.real = srv.WCLIP
+
+    def tearDown(self):
+        srv.WCLIP = self.real
+
+    def fake(self, payload):
+        path = os.path.join(TMP, "fake-wclip")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' " + shlex.quote(payload) + "\n")
+        os.chmod(path, 0o755)
+        srv.WCLIP = path
+
+    def run_job(self):
+        job_id = "job-%d" % time.time_ns()
+        srv.JOBS[job_id] = {"url": "https://example.com", "state": "running",
+                            "t0": time.time()}
+        srv.run_job(job_id, "https://example.com")
+        return srv.JOBS.pop(job_id)
+
+    def test_success(self):
+        note = os.path.join(ARTICLES, "fake-note.md")
+        with open(note, "w", encoding="utf-8") as f:
+            f.write("---\ntitle: Fake\n---\n\ntwenty words or so here.\n")
+        self.fake(json.dumps({"ok": True, "existing": False, "path": note,
+                              "warnings": ["careful"]}))
+        job = self.run_job()
+        self.assertEqual(job["state"], "done")
+        self.assertEqual(job["stem"], "fake-note")
+        self.assertFalse(job["existing"])
+        self.assertEqual(job["warnings"], "warning: careful")
+
+    def test_existing(self):
+        note = os.path.join(ARTICLES, "fake-note.md")
+        with open(note, "w", encoding="utf-8") as f:
+            f.write("---\ntitle: Fake\n---\n\nbody\n")
+        self.fake(json.dumps({"ok": True, "existing": True, "path": note}))
+        job = self.run_job()
+        self.assertEqual(job["state"], "done")
+        self.assertTrue(job["existing"])
+
+    def test_path_outside_articles_is_refused(self):
+        self.fake(json.dumps({"ok": True, "path": "/etc/passwd"}))
+        job = self.run_job()
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("unusable path", job["error"])
+
+    def test_error_result(self):
+        self.fake(json.dumps({"ok": False, "error": "boom"}))
+        job = self.run_job()
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("boom", job["error"])
+
+    def test_human_output_is_not_parsed(self):
+        self.fake("Clipped: /home/deploy/apps/dufs/data/articles/x.md")
+        job = self.run_job()
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("no JSON result", job["error"])
 
 
 def main():
