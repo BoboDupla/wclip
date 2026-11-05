@@ -15,11 +15,29 @@ export function die(msg: string): never {
 export function terminalText(msg: string): string {
   return String(msg).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
 }
+// --json owns stdout and keeps stderr for nothing at all, so warnings are collected
+// instead of printed and travel back inside the result object.
+let machine = false;
+const collected: string[] = [];
+
+export function setMachineMode(on: boolean): void {
+  machine = on;
+}
+export function isMachineMode(): boolean {
+  return machine;
+}
+export function takeWarnings(): string[] {
+  const out = collected.slice();
+  collected.length = 0;
+  return out;
+}
 export function warn(msg: string): void {
-  process.stderr.write(`warning: ${terminalText(msg)}\n`);
+  const text = terminalText(msg);
+  collected.push(text);
+  if (!machine) process.stderr.write(`warning: ${text}\n`);
 }
 export function info(msg: string): void {
-  process.stderr.write(`${terminalText(msg)}\n`);
+  if (!machine) process.stderr.write(`${terminalText(msg)}\n`);
 }
 
 // One shared line reader: a fresh readline per question would swallow the rest of piped input.
@@ -57,9 +75,13 @@ export function sanitizeFilename(title: string): string {
 }
 
 export function wordCount(text: string): number {
-  // Strip markdown links/images so URLs aren't counted as words.
-  text = text.replace(/!?\[\]\([^)]*\)/g, '');
-  text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  // Strip markdown links/images so URLs aren't counted as words. The character classes
+  // exclude their own delimiters: `[^\]]*` also matched `[`, which made every `[` in the
+  // text scan to the end of the string before failing (quadratic: 80k brackets took 12 s,
+  // so a hostile page could stall the process for hours). Escaped parentheses such as
+  // `[x](https://w.org/Foo_\(bar\))` stay part of the destination.
+  text = text.replace(/!?\[\]\((?:\\.|[^()\\])*\)/g, '');
+  text = text.replace(/!?\[([^[\]]*)\]\((?:\\.|[^()\\])*\)/g, '$1');
   return (text.match(new RegExp(`${W}(?:[\\p{L}\\p{N}_'-]*${W})?`, 'gu')) ?? []).length;
 }
 
@@ -95,6 +117,12 @@ export function hostOf(url: string): string {
   return new URL(url).hostname.replace(/^www\./, '');
 }
 
+// A bare host or a scheme-less URL is assumed to be HTTPS. Anything that already
+// declares a scheme is left alone so checkedUrl() can reject it with a clear message;
+// prefixing turned "file:///etc/passwd" into "https://file:///etc/passwd". A known
+// scheme name is required, so "example.com:8080/x" stays a host and port.
 export function normalizeUrl(url: string): string {
-  return /^https?:\/\//.test(url) ? url : `https://${url}`;
+  const s = url.trim();
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^(?:https?|ftp|ftps|file|data|javascript|mailto|gopher|ws|wss):/i.test(s)
+    ? s : `https://${s}`;
 }

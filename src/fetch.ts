@@ -8,6 +8,7 @@
 // curl --tls-max 1.2 and Python's urllib from the same address). node:https offers no ALPN.
 import http from 'node:http';
 import https from 'node:https';
+import type { CookieJar } from './cookies.js';
 import zlib from 'node:zlib';
 import { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -18,13 +19,32 @@ import {
 import { warn } from './util.js';
 export { DEFAULT_MAX_BYTES, DEFAULT_MAX_DECODED_BYTES, type RequestPolicy } from './network-policy.js';
 
-export const VERSION = '0.5.0';
+export const VERSION = '0.9.3';
 export const HONEST_UA = `wclip/${VERSION} (personal article clipper)`;
 export const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
 
 // A real HTML article page is essentially never smaller than this. Anything shorter is a
 // stub, an error page or a decoy, so it is worth retrying with a different user agent.
 export const MIN_PLAUSIBLE_HTML = 2048;
+
+// A bare status code makes the user guess whether the tool or the site failed. Name the
+// wall instead, and keep these phrases short enough to sit in parentheses.
+export function statusHint(status: number): string | null {
+  switch (status) {
+    case 401: return 'login or subscription required';
+    case 402: return 'payment required';
+    case 403: return 'blocked by the site (bot wall or region lock)';
+    case 407: return 'proxy authentication required';
+    case 429: return 'rate limited, try again later';
+    case 451: return 'unavailable for legal reasons';
+    default: return null;
+  }
+}
+
+// The last non-2xx answer, so the caller's final "could not fetch" error can name it.
+let lastFailure: { status: number; url: string } | null = null;
+export function lastHttpFailure(): { status: number; url: string } | null { return lastFailure; }
+export function resetHttpFailures(): void { lastFailure = null; }
 
 export interface Page {
   html: string;
@@ -124,15 +144,36 @@ function tlsSettings(tls: https.RequestOptions): https.RequestOptions {
   return Object.fromEntries(keys.filter(key => tls[key] !== undefined).map(key => [key, tls[key]]));
 }
 
+// Cookies are attached per hop, from the jar, and any caller-supplied cookie field is
+// discarded first: a redirect target must only receive the cookies that match it.
+function hopHeaders(headers: Record<string, string>, target: URL, cookies?: CookieJar,
+                    startOrigin?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const crossed = startOrigin !== undefined && target.origin !== startOrigin;
+  for (const [k, v] of Object.entries(headers)) {
+    const name = k.toLowerCase();
+    if (name === 'cookie') continue;
+    // Credentials were issued for one origin; a redirect to another is a different
+    // party, and forwarding Authorization there would hand it our token.
+    if (crossed && (name === 'authorization' || name === 'proxy-authorization')) continue;
+    out[k] = v;
+  }
+  const cookie = cookies?.header(target) ?? null;
+  if (cookie) out.cookie = cookie;
+  return out;
+}
+
 // One GET with a single wall-clock deadline across DNS, redirects and decoding.
 // node:https intentionally preserves its no-ALPN TLS hello; do not replace with fetch().
 export async function get(url: string, headers: Record<string, string>, timeoutSec: number,
-                          tls: https.RequestOptions = {}, policy: RequestPolicy = {}): Promise<RawResponse> {
+                          tls: https.RequestOptions = {}, policy: RequestPolicy = {},
+                          cookies?: CookieJar): Promise<RawResponse> {
   byteLimits(policy);
   if (!Number.isFinite(timeoutSec) || timeoutSec <= 0 || timeoutSec * 1000 > 0x7fffffff) {
     throw new HttpError('timeout must be a positive number of seconds (at most 2147483)');
   }
   let current = checkedUrl(url, policy);
+  const startOrigin = current.origin;
   const controller = new AbortController();
   const timeoutError = new HttpError(`timed out after ${timeoutSec} s`);
   let request: http.ClientRequest | undefined;
@@ -151,7 +192,8 @@ export async function get(url: string, headers: Record<string, string>, timeoutS
       const mod = target.protocol === 'https:' ? https : http;
       response = await new Promise<http.IncomingMessage>((resolve, reject) => {
         const req = mod.get(target, {
-          ...tlsSettings(tls), headers, agent: false, lookup: guardedLookup(policy), signal: controller.signal,
+          ...tlsSettings(tls), headers: hopHeaders(headers, target, cookies, startOrigin), agent: false,
+          lookup: guardedLookup(policy), signal: controller.signal,
         }, resolve);
         request = req;
         req.on('error', reject);
@@ -191,18 +233,22 @@ export async function get(url: string, headers: Record<string, string>, timeoutS
 }
 
 export async function fetchPage(url: string, ua: string, timeoutSec: number,
-                                tls: https.RequestOptions = {}, policy: RequestPolicy = {}): Promise<Page | null> {
+                                tls: https.RequestOptions = {}, policy: RequestPolicy = {},
+                                cookies?: CookieJar): Promise<Page | null> {
   const label = ua === HONEST_UA ? 'honest UA' : 'browser UA';
   const started = Date.now();
+  resetHttpFailures();
   try {
     const r = await get(url, {
       'User-Agent': ua,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en',
       'Accept-Encoding': 'gzip, deflate, br',
-    }, timeoutSec, tls, policy);
+    }, timeoutSec, tls, policy, cookies);
     if (r.status < 200 || r.status > 299) {
-      warn(`${label}: HTTP ${r.status} from ${url}`);
+      lastFailure = { status: r.status, url };
+      const hint = statusHint(r.status);
+      warn(`${label}: HTTP ${r.status} from ${url}${hint ? ` (${hint})` : ''}`);
       return null;
     }
     const ct = r.headers['content-type'] ?? null;

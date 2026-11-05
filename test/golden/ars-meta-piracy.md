@@ -1,5 +1,7 @@
 ![](https://cdn.arstechnica.net/wp-content/uploads/2025/07/GettyImages-1264284948-1152x648.jpg)
 
+Lawsuit: Meta may have seeded porn to minors while hiding piracy for AI training.
+
 Credit: [Charnchai Guoy | iStock / Getty Images Plus](https://www.gettyimages.com/detail/illustration/hacker-in-the-dark-royalty-free-illustration/1264284948?phrase=pirate%20laptop&searchscope=image%2Cfilm&adppopup=true)
 
 Porn sites may have blown up Meta’s key defense in a copyright fight with book authors who earlier this year [said that Meta torrented](https://arstechnica.com/tech-policy/2025/02/meta-torrented-over-81-7tb-of-pirated-books-to-train-ai-authors-say/) “at least 81.7 terabytes of data across multiple shadow libraries” to train its AI models.

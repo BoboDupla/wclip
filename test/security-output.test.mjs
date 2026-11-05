@@ -58,7 +58,7 @@ test('standalone HTML has restrictive CSP/referrer and validates source metadata
     assert.equal(document.querySelectorAll('a[href]').length, 0);
     assert.equal(document.querySelector('meta[name=referrer]').getAttribute('content'), 'no-referrer');
     const csp = document.querySelector('meta[http-equiv=Content-Security-Policy]').getAttribute('content');
-    for (const directive of ["default-src 'none'", "script-src 'none'", 'img-src https: http: data:', "style-src 'unsafe-inline'", "base-uri 'none'", "form-action 'none'"]) assert.ok(csp.includes(directive));
+    for (const directive of ["default-src 'none'", "script-src 'none'", 'img-src https: data:', "style-src 'unsafe-inline'", "base-uri 'none'", "form-action 'none'"]) assert.ok(csp.includes(directive));
     assertPassive(strFromU8((await epubFiles('Body', null, source))['OEBPS/content.xhtml']));
   }
 });

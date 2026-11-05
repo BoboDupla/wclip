@@ -47,8 +47,14 @@ test('CI installs without lifecycle scripts and wires the native Bun ahead of it
   assert.match(expose.run, /ln -sfn \.\.\/@oven\/bun-linux-x64\/bin\/bun node_modules\/\.bin\/bun/);
   assert.doesNotMatch(expose.run, /node install\.js|npm rebuild/);
   const audit = build.steps.find(s => s.name === 'Audit production and bootstrap tooling dependencies');
-  assert.match(audit.run, /npm audit --omit=dev --audit-level=high/);
+  assert.match(audit.run, /npm audit --omit=dev --audit-level=moderate/);
   assert.match(audit.run, /npm audit --prefix tooling --audit-level=high/);
+});
+
+test('the tag-triggered release build does not restore an npm cache', () => {
+  const setup = build.steps.find(s => s.uses?.startsWith('actions/setup-node@'));
+  // A poisoned cache could substitute dependencies into a published release.
+  assert.equal(setup.with.cache, undefined);
 });
 
 test('actions use immutable full commit pins with version comments', () => {

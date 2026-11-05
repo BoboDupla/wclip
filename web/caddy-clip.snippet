@@ -1,0 +1,6 @@
+# ── wclip web (article clipper) ──
+# Authentication is handled by the app (login form + session cookie), so there is
+# no basic_auth here: the browser prompt reappears on iOS, a cookie does not.
+clip.shtfn.xyz {
+    reverse_proxy 127.0.0.1:8791
+}

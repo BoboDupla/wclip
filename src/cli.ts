@@ -4,13 +4,14 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DEFAULTS, DEFAULT_CONFIG_TEMPLATE, configPath, expandHome, loadConfig, writePrivate, type Config } from './config.js';
+import { loadCookieJar, type CookieJar } from './cookies.js';
 import type { Article } from './extract.js';
 import { HONEST_UA, VERSION } from './fetch.js';
 import { llmTagsSummary } from './llm.js';
 import { buildNote, type Fields } from './note.js';
 import { getArticle } from './pipeline.js';
 import { makeImageFetcher, writeExports } from './render.js';
-import { WclipError, ask, closeInput, die, hostOf, info, normalizeUrl, parseDate, readingTime, sanitizeFilename } from './util.js';
+import { WclipError, ask, closeInput, die, hostOf, info, isMachineMode, normalizeUrl, parseDate, readingTime, sanitizeFilename, setMachineMode, takeWarnings, warn } from './util.js';
 import { configureStatus, startTask, stopStatus } from './status.js';
 import { readTextFileLimited, safeWriteFile } from './files.js';
 
@@ -32,9 +33,11 @@ options:
   -r, --read               mark as read
   -f, --force              overwrite existing note
       --stdout             print note instead of writing it
+      --json               print one JSON result object on stdout; implies quiet
       --browser            fetch with the headless browser right away
       --no-browser         never use the headless browser
       --html FILE          extract from saved HTML (20 MiB limit; LLM off unless --llm)
+      --cookies FILE       send subscriber cookies (Netscape cookies.txt) to the target host
       --llm                explicitly send article text to OpenRouter for this run
       --no-llm             never send article text to OpenRouter
       --allow-private      allow local/intranet requests (including page images)
@@ -55,15 +58,34 @@ Config: ~/.config/wclip/config.yaml (override with $WCLIP_CONFIG)
 type Args = {
   url?: string; interactive?: boolean; title?: string; author?: string; published?: string; description?: string;
   tags?: string; read?: boolean; force?: boolean; stdout?: boolean; browser?: boolean; 'no-browser'?: boolean;
-  html?: string; verbose?: boolean; quiet?: boolean; 'no-progress'?: boolean;
+  html?: string; cookies?: string; verbose?: boolean; quiet?: boolean; 'no-progress'?: boolean; json?: boolean;
   llm?: boolean; 'no-llm'?: boolean; 'allow-private'?: boolean;
 };
 
-async function fetchArticle(url: string, cfg: Config, args: Args): Promise<Article> {
+// Subscriber cookies are opt-in per run (--cookies) or per config (cookies_file). Nothing is
+// sent unless asked for, no value is ever echoed, and a --html run needs no network at all.
+function resolveCookies(args: Args, cfg: Config): CookieJar | undefined {
+  const file = args.cookies ?? cfg.cookies_file;
+  if (!file) return undefined;
+  if (args.html !== undefined) {
+    warn('--cookies has no effect with --html: the saved file is read offline');
+    return undefined;
+  }
+  const jar = (() => {
+    try { return loadCookieJar(expandHome(file)); }
+    catch (e) { die(`could not read cookies file ${file}: ${(e as Error).message}`); }
+  })();
+  if (!jar.count) die(`cookies file ${file} contains no usable cookies`);
+  return jar;
+}
+
+async function fetchArticle(url: string, cfg: Config, args: Args, cookies?: CookieJar): Promise<Article> {
+  if (cookies && !cookies.header(url)) warn(`no cookie in the file matches ${hostOf(url)}; fetching unauthenticated`);
   const task = startTask(args.html !== undefined ? `reading ${basename(args.html)}` : `fetching ${hostOf(url)}`);
   return getArticle(url, cfg, {
     browser: args.browser ? 'always' : args['no-browser'] ? 'never' : undefined,
     html: args.html !== undefined ? readTextFileLimited(args.html, 20 * 1024 * 1024) : undefined,
+    cookies,
     task,
   });
 }
@@ -95,6 +117,10 @@ async function gatherFields(url: string, art: Article, cfg: Config, args: Args):
   };
 }
 
+function emitJson(result: Record<string, unknown>): void {
+  process.stdout.write(JSON.stringify(result) + '\n');
+}
+
 async function writeNote(dest: string, note: string, cfg: Config, overwrite = false): Promise<void> {
   mkdirSync(join(dest, '..'), { recursive: true });
   try { safeWriteFile(dest, note, overwrite); } catch (e) {
@@ -105,11 +131,11 @@ async function writeNote(dest: string, note: string, cfg: Config, overwrite = fa
   await writeExports(dest, note, cfg, cfg.include_images ? makeImageFetcher(HONEST_UA, cfg.timeout, cfg.allow_private) : null);
 }
 
-async function interactiveClip(url: string, args: Args, cfg: Config): Promise<void> {
+async function interactiveClip(url: string, args: Args, cfg: Config, cookies?: CookieJar): Promise<void> {
   if (!url) url = await ask('URL');
   if (!url) die('no URL given');
   url = normalizeUrl(url);
-  const art = await fetchArticle(url, cfg, args);
+  const art = await fetchArticle(url, cfg, args, cookies);
   info('Extracted:');
   info(`  title:     ${art.title || url}`);
   info(`  author:    ${art.author || '(unknown)'}`);
@@ -141,8 +167,8 @@ async function interactiveClip(url: string, args: Args, cfg: Config): Promise<vo
   await writeNote(dest, note, cfg, overwrite);
 }
 
-async function batchClip(url: string, args: Args, cfg: Config): Promise<void> {
-  const art = await fetchArticle(url, cfg, args);
+async function batchClip(url: string, args: Args, cfg: Config, cookies?: CookieJar): Promise<void> {
+  const art = await fetchArticle(url, cfg, args, cookies);
   const f = await gatherFields(url, art, cfg, args);
   const note = buildNote(f, art.content, cfg);
   if (args.stdout) {
@@ -150,8 +176,21 @@ async function batchClip(url: string, args: Args, cfg: Config): Promise<void> {
     return;
   }
   const dest = join(expandHome(cfg.articles_dir), `${sanitizeFilename(f.title)}.md`);
-  if (existsSync(dest) && !args.force) die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
+  if (existsSync(dest) && !args.force) {
+    // In --json mode an existing note is a result, not a failure: the caller asked
+    // what happened and can act on `existing`. The text mode keeps exit code 1.
+    if (args.json) {
+      emitJson({ ok: true, existing: true, path: dest, title: f.title, warnings: takeWarnings() });
+      return;
+    }
+    die(`already clipped: ${dest}\n(use --force to overwrite or -i to rename)`);
+  }
   await writeNote(dest, note, cfg, Boolean(args.force));
+  if (args.json) {
+    emitJson({ ok: true, existing: false, path: dest, title: f.title, tags: f.tags,
+               words: art.words, warnings: takeWarnings() });
+    return;
+  }
   info(`title: ${f.title} | ${art.words} words | ${readingTime(art.words, cfg.reading_wpm)}`);
   if (!f.tags.length && args.tags === undefined && (cfg.openrouter.enabled || args.llm) && !args['no-llm'])
     info('note: tags/description empty (OpenRouter skipped, unavailable or failed)');
@@ -168,8 +207,9 @@ async function main(): Promise<number> {
         description: { type: 'string', short: 'd' }, tags: { type: 'string', short: 'g' },
         read: { type: 'boolean', short: 'r' }, force: { type: 'boolean', short: 'f' },
         stdout: { type: 'boolean' }, browser: { type: 'boolean' }, 'no-browser': { type: 'boolean' },
-        html: { type: 'string' }, verbose: { type: 'boolean', short: 'v' }, quiet: { type: 'boolean', short: 'q' },
-        'no-progress': { type: 'boolean' }, 'init-config': { type: 'boolean' },
+        html: { type: 'string' }, cookies: { type: 'string' },
+        verbose: { type: 'boolean', short: 'v' }, quiet: { type: 'boolean', short: 'q' },
+        'no-progress': { type: 'boolean' }, 'init-config': { type: 'boolean' }, json: { type: 'boolean' },
         llm: { type: 'boolean' }, 'no-llm': { type: 'boolean' }, 'allow-private': { type: 'boolean' },
         version: { type: 'boolean', short: 'V' }, help: { type: 'boolean', short: 'h' },
       },
@@ -185,6 +225,12 @@ async function main(): Promise<number> {
   const args: Args = { ...values, url: positionals[0] };
   if (args.browser && args['no-browser']) die('--browser and --no-browser exclude each other');
   if (args.llm && args['no-llm']) die('--llm and --no-llm exclude each other');
+  if (args.cookies !== undefined && !args.cookies.trim()) die('--cookies needs a file path');
+  if (args.json && args.stdout) die('--json and --stdout exclude each other');
+  if (args.json && args.interactive) die('--json and -i exclude each other');
+  if (args.json && values['init-config']) die('--json cannot be combined with --init-config');
+  // Before anything can warn: from here on stdout belongs to the JSON object alone.
+  if (args.json) setMachineMode(true);
 
   if (values['init-config']) {
     const p = configPath();
@@ -195,13 +241,15 @@ async function main(): Promise<number> {
   }
   const loaded = await loadConfig();
   const cfg: Config = { ...loaded, allow_private: Boolean(args['allow-private'] || loaded.allow_private) };
+  const cookies = resolveCookies(args, cfg);
   configureStatus({
     verbose: Boolean(args.verbose),
-    quiet: Boolean(args.quiet),
+    // --json implies quiet: stdout is the result and progress has nowhere to go.
+    quiet: Boolean(args.quiet || args.json),
     progress: args['no-progress'] ? false : cfg.progress,
   });
-  if (args.interactive) await interactiveClip(args.url ?? '', args, cfg);
-  else if (args.url) await batchClip(normalizeUrl(args.url), args, cfg);
+  if (args.interactive) await interactiveClip(args.url ?? '', args, cfg, cookies);
+  else if (args.url) await batchClip(normalizeUrl(args.url), args, cfg, cookies);
   else { process.stderr.write(HELP); return 1; }
   return 0;
 }
@@ -210,7 +258,8 @@ process.on('SIGINT', () => { stopStatus(); process.stderr.write('\naborted\n'); 
 // exitCode, not exit(): exit() can cut off a large note still being piped from --stdout.
 main().finally(closeInput).then(code => { process.exitCode = code; }, e => {
   stopStatus();
-  if (e instanceof WclipError) info(`error: ${e.message}`);
-  else info(`error: ${(e as Error).message ?? e}`);
+  const message = e instanceof WclipError ? e.message : ((e as Error).message ?? String(e));
+  if (isMachineMode()) process.stdout.write(JSON.stringify({ ok: false, error: message }) + '\n');
+  else info(`error: ${message}`);
   process.exitCode = 1;
 });

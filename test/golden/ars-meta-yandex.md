@@ -1,3 +1,5 @@
+Abuse allows Meta and Yandex to attach persistent identifiers to detailed browsing histories.
+
 [![](https://cdn.arstechnica.net/wp-content/uploads/2025/06/android-tracking-binoculars.jpg)](https://cdn.arstechnica.net/wp-content/uploads/2025/06/android-tracking-binoculars.jpg)
 
 Credit: Aurich Lawson | Getty Images

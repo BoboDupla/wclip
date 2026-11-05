@@ -21,9 +21,20 @@ export interface Article {
 export interface ExtractOptions {
   boilerplate: Record<string, string[]>;
   includeImages: boolean;
+  // --html runs read a local snapshot: never contact anything, not even an arXiv lookup.
+  offline?: boolean;
   // Returns arXiv API Atom XML for an id, or null. Injectable so tests run offline.
   arxivLookup?: (id: string) => Promise<string | null>;
 }
+
+// Titles, bylines and descriptions reach the frontmatter, --stdout, a terminal and EPUB
+// XHTML. Strip C0/C1 controls (XML 1.0 forbids most of them) and the bidi embedding
+// controls used for Trojan-Source style reordering. U+200E/U+200F/U+061C are kept:
+// they carry meaning in right-to-left text.
+const META_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+const cleanMeta = (s: string): string => s.replace(META_CONTROLS, '').replace(/\s+/g, ' ').trim();
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Selectors for a host: "*" plus every key that is the host or a parent domain of it.
 function selectorsFor(map: Record<string, string[]>, host: string): string[] {
@@ -102,25 +113,60 @@ function preprocess(document: Document, host: string, boilerplate: Record<string
 }
 
 const norm = (s: string | undefined) => (s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const fromCode = (n: number) => (Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '');
+// arXiv metadata arrives as Atom XML, where numeric references and &apos; are legal.
 const decode = (s: string) =>
-  s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  s.replace(/&#x([0-9a-f]+);/gi, (_, h: string) => fromCode(Number.parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d: string) => fromCode(Number.parseInt(d, 10)))
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
-function postprocess(md: string, description: string): string {
+// Fix 7: a figure whose image Defuddle drops loses the block boundary with its caption, so the
+// caption is welded onto the last sentence ("...for AI training.Credit: iStock / Getty"). The text
+// is all there, only the separator is missing. The tell is a caption label following sentence
+// punctuation with no space at all: "wording. Credit: ..." is ordinary prose and stays put.
+const CAPTION_LABELS = 'Credit|Caption|Source|Photo|Image|Picture|Illustration|Figure|Screenshot|Graphic|Video|Bild|Bildquelle|Foto|Quelle|Grafik|Abbildung';
+const CAPTION_LABEL = String.raw`(?:(?:${CAPTION_LABELS})\s*:|(?:Photo|Image|Picture|Illustration|Screenshot|Video)\s+by\b)`;
+
+export function separateCaptionLabels(md: string): string {
+  return md.replace(new RegExp(String.raw`([.!?]["”')\]]?)(?=${CAPTION_LABEL})`, 'g'), '$1\n\n');
+}
+
+// Fix 8: some sites (alxgsv's terminal-themed blog among them) put the whole post inside one
+// <pre>, so the entire article arrives as a single unlabelled fenced block: a wall of monospace
+// in the note, the HTML rendition and the EPUB. Only an article that is nothing but that one
+// block is unwrapped, and only when its text reads as prose, so an article that merely contains
+// a code listing, or a page that really is one snippet, is left untouched.
+export function unwrapProseCodeBlock(md: string): string | null {
+  const m = /^```([^\n`]*)\n([\s\S]*?)\n?```$/.exec(md.trim());
+  if (!m || m[1].trim()) return null; // a language tag means somebody meant it as code
+  const text = m[2];
+  if (text.length < 200) return null;
+  const paras = text.split(/\n[ \t]*\n/).map(p => p.trim()).filter(Boolean);
+  if (paras.length < 2) return null;
+  // Code punctuation (braces, angle brackets, semicolons, assignments, arrows, comment markers)
+  // is rare in prose and pervasive in code, including the minified single-line kind.
+  if ((text.match(/[{}<>;=]|=>|::|\/\/|\/\*/g) ?? []).length / text.length > 0.01) return null;
+  // Prose has sentence punctuation; code mostly has none, unless it is all comments.
+  if ((text.match(/[.!?]["'”’)]?(\s|$)/g) ?? []).length < paras.length) return null;
+  // Indentation inside a paragraph is a code shape; wrapped prose is not indented.
+  if (/^[ \t]{2,}\S/m.test(text)) return null;
+  return paras.map(p => p.split('\n').map(l => l.trim()).join(' ')).join('\n\n');
+}
+
+function postprocess(md: string): string {
   // Defuddle escapes "<trait>" but not "<trait\_description>"; unescaped, it reads as an HTML tag and vanishes.
   md = md.replace(/(^|[^\\])<(\/?[a-z][a-z0-9]*(?:\\_[a-z0-9]+)+)>/gm, '$1\\<$2>');
-  // With content patterns off, Defuddle no longer drops a lede that repeats the description,
-  // and it leaves an identical paragraph twice in a row (Ars image credits).
+  md = separateCaptionLabels(md);
+  // With content patterns off, Defuddle leaves an identical paragraph twice in a row
+  // (Ars image credits). It also leaves a lede that repeats the page's description, which
+  // is what we want: many sites put the opening paragraph in the description verbatim, and
+  // dropping it deleted real prose. Slicing it off by `description.length` cut midway through
+  // the Markdown instead (the paragraph carries ** and * markers the plain-text description
+  // does not), leaving a fragment like "gy*.**" at the top of the note.
   const paras = md.split(/\n\s*\n/).filter((p, i, a) => i === 0 || norm(p) !== norm(a[i - 1]));
-  const i = paras.findIndex(p => norm(p).length > 0);
-  const d = norm(description);
-  if (i >= 0 && d && norm(paras[i]).startsWith(d)) {
-    const rest = paras[i].slice(description.length).trim();
-    if (norm(paras[i]) === d || norm(rest) === norm(paras[i]).slice(d.length).trim()) paras[i] = rest;
-    if (!paras[i]) paras.splice(i, 1);
-  }
   // Fix 3: parse raw HTML chunks once, rather than retrying an unbounded regex
   // at every unmatched <math>. Never decode annotation text into HTML markup.
-  return sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
+  const out = sanitizeMarkdown(paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), raw => {
     if (!/<math\b/i.test(raw)) return raw;
     const { document } = parseHTML(`<html><body>${raw}</body></html>`);
     const prefix = `WCTEX${randomUUID().replace(/-/g, '')}PH`;
@@ -134,6 +180,7 @@ function postprocess(md: string, description: string): string {
     }
     return document.body.innerHTML.replace(new RegExp(`${prefix}(\\d+)Z`, 'g'), (_, i: string) => tex[Number(i)]);
   });
+  return unwrapProseCodeBlock(out) ?? out;
 }
 
 // Fix 6: lead image. Defuddle drops some hero images that readers do see (Ars piracy article:
@@ -143,16 +190,33 @@ function postprocess(md: string, description: string): string {
 function leadImage(document: Document, image: string): { stem: string; alt: string } | null {
   if (!safeUrl(image, true) || !/^https?:/i.test(image)) return null;
   const stem = /\/([^/?#]+?)(?:-\d+x\d+)?\.(?:jpe?g|png|webp|gif|avif)$/i.exec(new URL(image).pathname)?.[1];
-  if (!stem) return null;
+  // A one- or two-character stem ("/a.jpg") matches half the page, so require a real name.
+  if (!stem || stem.length < 3) return null;
+  // The stem must be its own path segment, not a substring of another filename.
+  const looksLikeStem = new RegExp(`(?:^|[/\\s,\"'])${escapeRe(stem)}(?![\\p{L}\\p{N}])`, 'iu');
   const img = [...document.querySelectorAll('body img')]
-    .find(i => `${i.getAttribute('src') ?? ''} ${i.getAttribute('srcset') ?? ''}`.includes(stem) &&
+    .find(i => looksLikeStem.test(`${i.getAttribute('src') ?? ''} ${i.getAttribute('srcset') ?? ''}`) &&
                Number.parseInt(i.getAttribute('width') ?? '0', 10) >= 400);
   return img ? { stem, alt: img.getAttribute('alt') ?? '' } : null;
 }
 
 function restoreLeadImage(md: string, image: string, lead: { stem: string; alt: string } | null): string {
-  if (!lead || md.includes(lead.stem)) return md;
+  if (!lead) return md;
+  // Only an existing image reference counts. A prose mention of the stem ("banner") used
+  // to suppress the legitimate hero image of any article that used that word.
+  const stem = escapeRe(lead.stem);
+  const alreadyThere = new RegExp(`!\\[[^\\]]*\\]\\([^)\\s]*${stem}|<img\\b[^>]*\\bsrc\\s*=\\s*[\"'][^\"']*${stem}`, 'i');
+  if (alreadyThere.test(md)) return md;
   return `${markdownImage(lead.alt, image)}\n\n${md}`;
+}
+
+// A rel=license href is untrusted metadata: resolve it against the page and keep it only
+// if it is a plain HTTP(S) URL.
+function resolveLicense(href: string, pageUrl: string): string {
+  if (!href.trim()) return '';
+  let abs: string;
+  try { abs = new URL(href.trim(), pageUrl).href; } catch { return ''; }
+  return safeUrl(abs) && /^https?:/i.test(abs) ? abs : '';
 }
 
 // Fix 4: metadata. Byline-style author ("Ploum on 2025-09-03"), date from the byline or URL,
@@ -174,7 +238,8 @@ async function fixMeta(r: { title: string; author: string; published: string; si
   m.published ||= /(\d{4})[-/](\d{2})[-/](\d{2})/.exec(new URL(url).pathname)?.slice(1).join('-') ?? '';
   const arxiv = (host === 'arxiv.org' || host.endsWith('.arxiv.org')) &&
     /\/(?:html|abs|pdf)\/(\d{4}\.\d{4,5})(v\d+)?/.exec(new URL(url).pathname);
-  if (arxiv) {
+  // An offline (--html) run must not generate traffic, not even for arXiv metadata.
+  if (arxiv && !opts.offline) {
     const atom = await (opts.arxivLookup ?? arxivApi)(arxiv[1] + (arxiv[2] ?? ''));
     const entry = atom?.split('<entry>')[1] ?? '';
     if (entry) {
@@ -225,17 +290,20 @@ export async function extract(html: string, url: string, opts: ExtractOptions): 
     removeImages: !opts.includeImages,
   });
   const meta = await fixMeta(r, url, document as unknown as Document, opts);
-  let content = postprocess(r.content ?? '', meta.description);
+  let content = postprocess(r.content ?? '');
   if (opts.includeImages) content = restoreLeadImage(content, ogImage, lead);
-  content = content.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '');
+  // C0/C1 controls and bidi embeddings are not article content: they corrupt --stdout,
+  // terminals and EPUB XHTML, and can reorder visible text (Trojan Source). U+200E,
+  // U+200F and U+061C are deliberately kept for legitimate Arabic/Hebrew text.
+  content = content.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
   return {
     content,
-    title: meta.title,
-    author: meta.author,
+    title: cleanMeta(meta.title),
+    author: cleanMeta(meta.author),
     published: parseDate(meta.published),
-    site: meta.site,
-    description: meta.description,
-    license: extra.license,
+    site: cleanMeta(meta.site),
+    description: cleanMeta(meta.description),
+    license: resolveLicense(extra.license, url),
     image: safeUrl(r.image || ogImage, true) ? r.image || ogImage : '',
     words: wordCount(content),
   };
