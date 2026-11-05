@@ -4,7 +4,7 @@
   "private": true,
   "description": "Lockfile-pinned compiler and types for the source launcher; no lifecycle scripts.",
   "dependencies": {
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "@types/sanitize-html": "2.16.2",
     "typescript": "7.0.2"
   },
