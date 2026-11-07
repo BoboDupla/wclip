@@ -11,12 +11,14 @@ headers, cookie handling, CL validation) lives in the request path.
 """
 import base64
 import contextlib
+import html
 import http.client
 import io
 import queue
 import importlib.util
 import os
 import json
+import re
 import secrets
 import shlex
 import shutil
@@ -113,11 +115,17 @@ class PureHelpers(unittest.TestCase):
         finally:
             os.unlink(link)
 
-    def test_article_policy_keeps_downloads(self):
+    def test_article_policy_forbids_active_content(self):
+        # The reading view is third-party HTML on our origin: no scripts, no forms, no
+        # frames, no external CSS. `sandbox` is deliberately absent: an opaque origin
+        # broke link clicks in some browsers, and with active content already banned it
+        # bought nothing worth that.
         csp = srv.ARTICLE_CSP
         self.assertIn("script-src 'none'", csp)
         self.assertIn("frame-ancestors 'none'", csp)
-        self.assertIn("sandbox allow-downloads", csp)
+        self.assertIn("form-action 'none'", csp)
+        self.assertIn("base-uri 'none'", csp)
+        self.assertNotIn("sandbox", csp)
 
     def test_handler_timeout(self):
         self.assertEqual(srv.Handler.timeout, 30)
@@ -136,16 +144,17 @@ class Headers(unittest.TestCase):
         status, headers, body = request("GET", "/article/old-note/html", cookie=cookie)
         self.assertEqual(status, 200)
         self.assertIn(b"old", body)
-        self.assertIn("sandbox allow-downloads", headers["Content-Security-Policy"])
         self.assertIn("script-src 'none'", headers["Content-Security-Policy"])
+        self.assertIn("form-action 'none'", headers["Content-Security-Policy"])
 
     def test_view_carries_header_csp(self):
         cookie = login()
         status, headers, _ = request("GET", "/article/%s/view" % STEM, cookie=cookie)
         self.assertEqual(status, 200)
-        self.assertIn("sandbox allow-downloads", headers["Content-Security-Policy"])
+        self.assertIn("script-src 'none'", headers["Content-Security-Policy"])
+        self.assertNotIn("sandbox", headers["Content-Security-Policy"])
 
-    def test_markdown_download_has_no_sandbox(self):
+    def test_markdown_download_has_no_csp_limits(self):
         cookie = login()
         status, headers, _ = request("GET", "/article/%s/md" % STEM, cookie=cookie)
         self.assertEqual(status, 200)
@@ -223,6 +232,37 @@ class CrossSite(unittest.TestCase):
         status, _, _ = request("GET", "/toggle?stem=%s&to=0" % STEM,
                                headers={"Sec-Fetch-Site": "cross-site"}, cookie=cookie)
         self.assertEqual(status, 403)
+
+    def test_reading_view_bar_link_is_signed(self):
+        # The bar link is minted with an HMAC over stem+target, so it also works from a
+        # request that looks cross-site (that is what the sandbox used to cause).
+        cookie = login()
+        status, _, body = request("GET", "/article/old-note/view", cookie=cookie)
+        self.assertEqual(status, 200)
+        page = body.decode("utf-8")
+        link = re.search(r'href="(/toggle\?[^"]+)"', page)
+        self.assertIsNotNone(link, page[:500])
+        url = html.unescape(link.group(1))
+        self.assertIn("&s=", url)
+        status, _, _ = request("GET", url, headers={"Sec-Fetch-Site": "cross-site"},
+                               cookie=cookie)
+        self.assertEqual(status, 303)
+        note = open(os.path.join(ARTICLES, "old-note.md"), encoding="utf-8").read()
+        self.assertIn("read: true", note)
+        srv.set_read("old-note", False)
+
+    def test_signed_toggle_for_a_different_target_is_refused(self):
+        cookie = login()
+        _, _, body = request("GET", "/article/old-note/view", cookie=cookie)
+        url = html.unescape(re.search(r'href="(/toggle\?[^"]+)"',
+                                      body.decode("utf-8")).group(1))
+        tampered = url.replace("to=1", "to=0")
+        self.assertNotEqual(url, tampered)
+        status, _, _ = request("GET", tampered,
+                               headers={"Sec-Fetch-Site": "cross-site"}, cookie=cookie)
+        self.assertEqual(status, 403)
+        note = open(os.path.join(ARTICLES, "old-note.md"), encoding="utf-8").read()
+        self.assertIn("read: false", note)
 
     def test_non_browser_client_still_works(self):
         # No Sec-Fetch-Site at all (Shortcut, curl): the request reaches validation.

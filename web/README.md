@@ -85,14 +85,24 @@ and `/job/*/html` response carries:
 ```
 Content-Security-Policy: default-src 'none'; script-src 'none'; img-src https: data:;
   style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';
-  frame-ancestors 'none'; sandbox allow-downloads
+  frame-ancestors 'none'
 Referrer-Policy: no-referrer
 ```
 
-`sandbox` gives the document an opaque origin; `allow-downloads` is what keeps the
-reading view's EPUB and Markdown links working. The app's own pages get
-`frame-ancestors 'none'`, `X-Frame-Options: DENY` and `no-referrer` instead, because
-they need inline styles and forms.
+No scripts, no forms, no frames and no external stylesheets: a rendition can render
+text and images and nothing else. The app's own pages get `frame-ancestors 'none'`,
+`X-Frame-Options: DENY` and `no-referrer` instead, because they need inline styles and
+forms.
+
+`sandbox` used to be in that policy and was removed. An opaque origin broke more than
+it bought: every link click out of the reading view arrives as `Sec-Fetch-Site:
+cross-site` (that once made the app's own "mark read" link answer 403), and browsers
+that enforce the sandboxed top-level navigation rules silently drop clicks on ordinary
+outbound links, so the byline `source` link did nothing while "open in new tab" worked.
+With scripting, forms, frames and external CSS already forbidden, an opaque origin adds
+no capability an attacker could use. The bar's read toggle is still signed
+(`&s=...`, an HMAC over stem and target from the session secret) as belt and braces, so
+re-introducing `sandbox` would not break it again.
 
 The request side is deliberately narrow: `Content-Length` must parse and fit the
 endpoint's cap (4 KiB for login, 8 KiB for clip and toggle), the handler socket times
@@ -176,7 +186,10 @@ proxy must not leave an open endpoint behind.
   risk, which is why the escalation starts at ten rather than five.
 - State-changing requests (`POST /clip`, `GET|POST /toggle`) are refused with
   `403` when the browser reports `Sec-Fetch-Site: cross-site` or `same-site`.
-  A request without that header (curl, a Shortcut) is still allowed.
+  A request without that header (curl, a Shortcut) is still allowed. The one
+  exception is a `/toggle` URL whose `&s=` signature matches its `stem` and `to`:
+  a URL the server minted proves where the click came from, whatever the header
+  says.
 - `POST /clip` with a JSON body, or any request asking for JSON, returns `401`
   with a JSON error instead of an HTML redirect, so scripts and shortcuts can
   handle it.
@@ -193,7 +206,9 @@ To log out, use the `logout` link in the nav or clear the cookie.
 - `GET /articles` reading list, `?unread=1` or `?read=1` to filter
 - `GET /article/<stem>/view` the article itself, with a text nav strip
 - `GET /article/<stem>/md|html|epub` the raw renditions
-- `GET /toggle?stem=...&to=0|1&back=...` set read state
+- `GET /toggle?stem=...&to=0|1&back=...[&s=...]` set read state (the `s` signature
+  comes from the reading view's own nav strip; the list page's links are unsigned
+  and rely on the same-origin check)
 - `GET /theme?to=auto|light|dark` set the theme, redirect back
 - `GET|POST /login`, `GET /logout`
 
@@ -255,8 +270,10 @@ short "preparing" notice and reloads itself when the file exists.
   match an existing note, and no client-supplied path is ever joined into a file
   path.
 - CSRF: cookies are `SameSite=Lax`, so cross-site POSTs carry no session. The
-  read toggle additionally rejects a mismatched `Origin` or `Referer`. It is a
-  GET with an explicit target so repeats and prefetches are idempotent.
+  read toggle additionally rejects a mismatched `Origin` or `Referer`, and the
+  reading view's own link is signed with `HMAC(secret, "toggle:<stem>:<to>")` on
+  top of that. It is a GET with an explicit target so repeats and prefetches are
+  idempotent.
 - Downloads are sent with `Content-Disposition: attachment` and every response
   carries `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`.
 - Rendered article HTML is served as-is; it carries its own restrictive CSP

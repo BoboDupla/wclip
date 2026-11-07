@@ -58,11 +58,14 @@ MAX_PER_HOUR = 40           # total clips per hour (single user, so a runaway gu
 
 # Rendered articles are third-party HTML served on this origin, so the policy goes in a
 # response header instead of trusting the <meta> tag a given rendition happens to carry
-# (most older ones carry none). `sandbox allow-downloads` gives the document an opaque
-# origin while keeping the reading view's EPUB link usable.
+# (most older ones carry none). No scripts, no forms, no frames, no external CSS: with
+# those gone there is nothing left for a document to do except show text and images.
+# `sandbox` was tried here and removed: it gives the document an opaque origin, which
+# makes every link click look cross-site to the app and, in browsers that enforce it on
+# top-level documents, silently drops clicks on ordinary outbound links.
 ARTICLE_CSP = ("default-src 'none'; script-src 'none'; img-src https: data:; "
                "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
-               "frame-ancestors 'none'; sandbox allow-downloads")
+               "frame-ancestors 'none'")
 ARTICLE_HEADERS = {"Content-Security-Policy": ARTICLE_CSP,
                    "Referrer-Policy": "no-referrer"}
 # The app's own pages need inline styles and forms; this only stops framing and leaks.
@@ -150,6 +153,21 @@ def check_password(password, stored):
 
 def sign(raw, secret):
     return hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+
+
+def toggle_sig(stem, to, secret):
+    """A tag that makes one read-toggle URL unforgeable by another site.
+
+    Kept as belt and braces next to the fetch-metadata check: the bar link is minted by
+    the server, so a signed target proves it came from a page we served, whatever the
+    browser reports about where the click came from. The reading view used to be served
+    under a CSP `sandbox`, which made every click out of it arrive as `Sec-Fetch-Site:
+    cross-site`; the sandbox is gone, but signing the link means re-adding it later
+    cannot break the toggle again.
+    """
+    if not secret:
+        return ""
+    return sign(("toggle:%s:%s" % (stem, to)).encode("utf-8"), secret)[:32]
 
 
 def make_session(user, secret, days):
@@ -840,13 +858,15 @@ BAR_STYLE = ('<style>.wbar{font-size:.8em;margin:0 0 2em;line-height:1.9}'
              '.wbar a:hover{text-decoration:underline}</style>')
 
 
-def bar_html(stem, read):
+def bar_html(stem, read, secret=""):
     """Text-only nav strip injected into the rendition at serve time."""
     q = quote(stem, safe="")
     back = "/article/%s/view" % q
     mark = "&#9745; mark unread" if read else "&#9744; mark read"
+    to = "0" if read else "1"
     toggle = html.escape("/toggle?" + urlencode(
-        {"stem": stem, "to": "0" if read else "1", "back": back}), quote=True)
+        {"stem": stem, "to": to, "back": back, "s": toggle_sig(stem, to, secret)}),
+        quote=True)
     return ('%s<div class="wbar"><a href="/articles">&larr; articles</a> // '
             '<a href="%s">%s</a> // <a href="/article/%s/epub">&darr; epub</a> // '
             '<a href="/article/%s/md">&darr; markdown</a> //</div>') % (
@@ -994,7 +1014,8 @@ class Handler(BaseHTTPRequestHandler):
         if dark and "</head>" in doc:
             doc = doc.replace("</head>", dark + "\n</head>", 1)
         if "<body>" in doc:
-            doc = doc.replace("<body>", "<body>\n" + bar_html(stem, read) + "\n", 1)
+            doc = doc.replace("<body>", "<body>\n" + bar_html(
+                stem, read, load_auth().get("secret", "")) + "\n", 1)
         return self.send(200, doc, "text/html; charset=utf-8", ARTICLE_HEADERS)
 
     def handle_theme(self, qs):
@@ -1224,18 +1245,27 @@ class Handler(BaseHTTPRequestHandler):
             "Set-Cookie": cookie_header(token, days * 86400, self.secure_cookie())})
 
     def toggle(self, params):
-        if not self.same_site():
-            return self.send(403, "cross-site request rejected", "text/plain; charset=utf-8")
-        host = self.headers.get("Host", "")
-        for hdr in ("Origin", "Referer"):
-            origin = self.headers.get(hdr)
-            if origin:
-                if urlparse(origin).netloc and urlparse(origin).netloc != host:
-                    return self.send(403, "cross-origin request rejected", "text/plain; charset=utf-8")
-                break
         stem = (params.get("stem") or params.get("toggle") or [""])[0]
         back = (params.get("back") or ["/articles"])[0]
         target = (params.get("to") or [""])[0]
+        # A signed target (the reading view's own bar link) is checked first: a URL we
+        # minted proves the request did not come from somebody else's page, whatever
+        # Sec-Fetch-Site claims.
+        sig = (params.get("s") or [""])[0]
+        secret = load_auth().get("secret", "")
+        trusted = bool(secret and sig and hmac.compare_digest(
+            sig, toggle_sig(stem, target, secret)))
+        if not trusted:
+            if not self.same_site():
+                return self.send(403, "cross-site request rejected", "text/plain; charset=utf-8")
+            host = self.headers.get("Host", "")
+            for hdr in ("Origin", "Referer"):
+                origin = self.headers.get(hdr)
+                if origin:
+                    if urlparse(origin).netloc and urlparse(origin).netloc != host:
+                        return self.send(403, "cross-origin request rejected",
+                                         "text/plain; charset=utf-8")
+                    break
         if not valid_stem(stem):
             return self.send(400, "unknown article", "text/plain; charset=utf-8")
         with LOCK:
