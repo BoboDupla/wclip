@@ -1,7 +1,7 @@
 // Security regressions: consent, config, diagnostics and user-owned output files.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, readdirSync, statSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -148,6 +148,22 @@ test('atomic output creation refuses collisions and never follows symlinks', () 
   const symlink = join(d, 'link.md'); symlinkSync(target, symlink);
   for (const overwrite of [false, true]) assert.throws(() => safeWriteFile(symlink, 'evil', overwrite), /non-regular/);
   assert.equal(readFileSync(target, 'utf8'), 'do not touch');
+  assert.ok(!readdirSync(d).some(p => p.endsWith('.part')));
+});
+
+test('outputs publish on filesystems without hard links', () => {
+  const d = dir(), path = join(d, 'fuse.md');
+  const noLink = () => { const e = new Error('EACCES: permission denied, link'); e.code = 'EACCES'; throw e; };
+  safeWriteFile(path, 'note', false, 0o666, noLink);
+  assert.equal(readFileSync(path, 'utf8'), 'note');
+  assert.throws(() => safeWriteFile(path, 'second', false, 0o666, noLink), { code: 'EEXIST' });
+  assert.equal(readFileSync(path, 'utf8'), 'note');
+  safeWriteFile(path, 'replaced', true, 0o666, noLink);
+  assert.equal(readFileSync(path, 'utf8'), 'replaced');
+  assert.ok(!readdirSync(d).some(p => p.endsWith('.part')));
+  const broken = () => { const e = new Error('EIO'); e.code = 'EIO'; throw e; };
+  assert.throws(() => safeWriteFile(join(d, 'other.md'), 'x', false, 0o666, broken), { code: 'EIO' });
+  assert.ok(!existsSync(join(d, 'other.md')));
   assert.ok(!readdirSync(d).some(p => p.endsWith('.part')));
 });
 

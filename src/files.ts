@@ -5,7 +5,33 @@ import { constants, openSync, closeSync, fsyncSync, fchmodSync, fstatSync, readS
 import { dirname, basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-export function safeWriteFile(path: string, data: string | Uint8Array, overwrite = false, mode = 0o666): void {
+// Filesystems without hard links (Android's FUSE shared storage, FAT/exFAT cards, some network
+// mounts) answer link() with EACCES/EPERM even when the directory is fully writable.
+const LINK_UNSUPPORTED = new Set(['EPERM', 'EACCES', 'ENOSYS', 'EOPNOTSUPP', 'ENOTSUP', 'EXDEV']);
+
+// Publish without a hard link: O_EXCL still refuses an existing note, at the cost of the file
+// being visible while it is written.
+function publishExclusive(path: string, data: string | Uint8Array, mode: number): void {
+  let fd: number | undefined;
+  let created = false;
+  let published = false;
+  try {
+    fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    created = true;
+    writeFileSync(fd, data);
+    fchmodSync(fd, mode);
+    fsyncSync(fd);
+    published = true;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    if (created && !published) {
+      try { unlinkSync(path); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+    }
+  }
+}
+
+export function safeWriteFile(path: string, data: string | Uint8Array, overwrite = false, mode = 0o666,
+  link: (existing: string, created: string) => void = linkSync): void {
   let finalMode = mode & ~process.umask();
   try {
     const st = lstatSync(path);
@@ -25,7 +51,14 @@ export function safeWriteFile(path: string, data: string | Uint8Array, overwrite
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
     if (overwrite) renameSync(temp, path);
-    else linkSync(temp, path); // atomic EEXIST, unlike existsSync() followed by writeFileSync()
+    else {
+      try {
+        link(temp, path); // atomic EEXIST, unlike existsSync() followed by writeFileSync()
+      } catch (e) {
+        if (!LINK_UNSUPPORTED.has((e as NodeJS.ErrnoException).code ?? '')) throw e;
+        publishExclusive(path, data, finalMode);
+      }
+    }
   } finally {
     if (fd !== undefined) closeSync(fd);
     if (created) {
